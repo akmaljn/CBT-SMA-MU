@@ -701,9 +701,9 @@
                                 <option value="ALL">Semua Mata Pelajaran</option>
                             </select>
                         </div>
-                        <button type="button" onclick="exportResultsToCsv()"
+                        <button type="button" onclick="exportResultsToXlsx()"
                             class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs sm:text-sm transition flex items-center justify-center gap-2">
-                            <span>Unduh Rekap Excel (.csv)</span>
+                            <span>Unduh Rekap Excel (.xlsx)</span>
                         </button>
                     </div>
 
@@ -936,10 +936,6 @@
                                 class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition shadow-2xs">
                                 Unduh Excel (.xlsx)
                             </button>
-                            <button type="button" onclick="exportStudentCodesCsv()"
-                                class="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition">
-                                Unduh (.csv)
-                            </button>
                         </div>
                     </div>
 
@@ -1115,11 +1111,21 @@
                         <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <span class="text-xs font-bold uppercase tracking-wider text-slate-600">Hak Akses Mata Pelajaran Guru</span>
-                                <button type="button" onclick="clearTeacherSubjectCheckboxes('op-new-teacher-subjects')" class="text-xs font-semibold text-indigo-600 hover:underline">
-                                    Kosongkan (Akses Semua Mapel)
-                                </button>
+                                <div class="flex flex-wrap items-center gap-2.5">
+                                    <div class="flex items-center gap-1.5">
+                                        <label for="op-new-teacher-class-filter" class="text-[11px] font-bold text-slate-500 uppercase">Filter Kelas:</label>
+                                        <select id="op-new-teacher-class-filter" onchange="filterTeacherSubjectCheckboxes('op-new-teacher-subjects', this.value, 'op-new-teacher-subjects-empty')"
+                                            class="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 outline-none focus:border-indigo-500">
+                                            <option value="ALL">Semua Kelas</option>
+                                        </select>
+                                    </div>
+                                    <button type="button" onclick="clearTeacherSubjectCheckboxes('op-new-teacher-subjects')" class="text-xs font-semibold text-indigo-600 hover:underline">
+                                        Kosongkan (Akses Semua Mapel)
+                                    </button>
+                                </div>
                             </div>
                             <div id="op-new-teacher-subjects" class="flex flex-wrap gap-2"></div>
+                            <p id="op-new-teacher-subjects-empty" class="hidden text-xs text-amber-700 font-medium">Tidak ada mata pelajaran terdaftar untuk kelas yang dipilih.</p>
                             <p class="text-xs text-slate-500">Jika tidak ada mata pelajaran dicentang, guru dapat mengakses <strong>semua mata pelajaran</strong>.</p>
                         </div>
                     </form>
@@ -1550,8 +1556,15 @@
                     </div>
                 </div>
                 <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-600">Hak Akses Mapel (Kosong = Semua Mapel)</label>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-600">Hak Akses Mapel (Kosong = Semua Mapel)</label>
+                        <select id="op-edit-teacher-class-filter" onchange="filterTeacherSubjectCheckboxes('op-edit-teacher-subjects', this.value, 'op-edit-teacher-subjects-empty')"
+                            class="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 outline-none focus:border-indigo-500">
+                            <option value="ALL">Semua Kelas</option>
+                        </select>
+                    </div>
                     <div id="op-edit-teacher-subjects" class="flex flex-wrap gap-2"></div>
+                    <p id="op-edit-teacher-subjects-empty" class="hidden text-xs text-amber-700 font-medium">Tidak ada mata pelajaran terdaftar untuk kelas yang dipilih.</p>
                 </div>
                 <div class="flex gap-2.5 pt-2">
                     <button type="button" onclick="closeEditTeacherOpModal()"
@@ -4417,30 +4430,22 @@
             }
 
             if (typeof XLSX === "undefined") {
-                showToast("Pustaka Excel tidak tersedia saat offline. Mengunduh format .csv...", "info");
-                exportResultsToCsv();
+                showToast("Pustaka Excel tidak tersedia saat offline. Pastikan koneksi internet aktif.", "error");
                 return;
             }
 
             const schoolTitle = (appConfig.schoolName || "SMA Miftahul Ulum").toUpperCase();
-            const subjObj = subjects.find((s) => s.id === subjFilter);
-            const subjLabel = subjFilter === "ALL" ? "Semua Mata Pelajaran" : (subjObj?.title || subjFilter);
-            const classLabel = clsFilter === "ALL" ? "Semua Kelas" : clsFilter;
+            const wb = XLSX.utils.book_new();
+            const usedSheetNames = new Set();
 
-            const headers = [
-                "No", "Nama Siswa", "NISN", "Kelas", "Mata Pelajaran",
-                "Nilai Akhir", "KKM", "Status", "Benar", "Salah", "Pindah Tab", "Waktu Selesai"
-            ];
-
-            const buildSheetRows = (records, titleBanner) => [
-                [titleBanner],
-                [`Filter Kelas: ${classLabel} | Mata Pelajaran: ${subjLabel} | Tanggal Unduh: ${formatIndoDate(getTodayDateString())}`],
-                [],
-                headers,
-                ...records.map((r, idx) => {
+            const buildSheetRows = (titleHeader, rowsData) => [
+                [`REKAP NILAI UJIAN CBT - ${schoolTitle}`],
+                [titleHeader],
+                ["No", "Nama Peserta", "NISN", "Kelas", "Mata Pelajaran", "Benar", "Salah", "Nilai Akhir", "KKM", "Status", "Waktu Selesai"],
+                ...rowsData.map((r, idx) => {
                     const passed = Number(r.score) >= Number(r.kkm || 75);
                     const statusText = (r.hasEssay && !r.essayGraded)
-                        ? "Perlu Koreksi Essay"
+                        ? "Menunggu Koreksi Essay"
                         : (passed ? "Lulus KKM" : "Remedial");
                     return [
                         idx + 1,
@@ -4448,82 +4453,43 @@
                         r.studentNisn || "-",
                         r.studentClass || "-",
                         r.subjectTitle || "-",
+                        Number(r.correctCount) || 0,
+                        Number(r.wrongCount) || 0,
                         Number(r.score) || 0,
                         Number(r.kkm) || 75,
                         statusText,
-                        Number(r.correctCount) || 0,
-                        Number(r.wrongCount) || 0,
-                        Number(r.tabWarnings) || 0,
                         r.finishedAt || "-"
                     ];
                 })
             ];
 
             const colWidths = [
-                { wch: 5 }, { wch: 26 }, { wch: 16 }, { wch: 14 }, { wch: 24 },
-                { wch: 12 }, { wch: 8 }, { wch: 20 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 22 }
+                { wch: 5 }, { wch: 24 }, { wch: 16 }, { wch: 14 },
+                { wch: 24 }, { wch: 8 }, { wch: 8 }, { wch: 12 },
+                { wch: 8 }, { wch: 22 }, { wch: 22 }
             ];
 
-            const wb = XLSX.utils.book_new();
-            const usedSheetNames = new Set();
-
-            // Sheet utama berisi seluruh rekap sesuai filter
-            const mainWs = XLSX.utils.aoa_to_sheet(
-                buildSheetRows(filtered, `REKAP NILAI UJIAN SEMESTER - ${schoolTitle}`)
-            );
+            const mainSubtitle = `Filter Kelas: ${clsFilter === "ALL" ? "Semua Kelas" : clsFilter} | Mapel: ${subjFilter === "ALL" ? "Semua Mapel" : (subjects.find((s) => s.id === subjFilter)?.title || subjFilter)}`;
+            const mainWs = XLSX.utils.aoa_to_sheet(buildSheetRows(mainSubtitle, filtered));
             mainWs["!cols"] = colWidths;
-            const mainSheetName = sanitizeExcelSheetName("Rekap Nilai", usedSheetNames);
-            XLSX.utils.book_append_sheet(wb, mainWs, mainSheetName);
+            XLSX.utils.book_append_sheet(wb, mainWs, sanitizeExcelSheetName("Rekap Utama", usedSheetNames));
 
-            // Jika memilih Semua Kelas dan terdapat lebih dari 1 kelas, tambahkan sheet per kelas
             if (clsFilter === "ALL") {
-                const distinctClasses = Array.from(new Set(filtered.map((r) => r.studentClass).filter(Boolean)));
-                if (distinctClasses.length > 1) {
-                    distinctClasses.forEach((clsName) => {
-                        const classRecords = filtered.filter((r) => r.studentClass === clsName);
-                        const clsWs = XLSX.utils.aoa_to_sheet(
-                            buildSheetRows(classRecords, `REKAP NILAI KELAS ${clsName.toUpperCase()} - ${schoolTitle}`)
-                        );
-                        clsWs["!cols"] = colWidths;
-                        const clsSheetName = sanitizeExcelSheetName(clsName, usedSheetNames);
-                        XLSX.utils.book_append_sheet(wb, clsWs, clsSheetName);
-                    });
-                }
+                const classGroups = new Map();
+                filtered.forEach((r) => {
+                    const cName = r.studentClass || "Lainnya";
+                    if (!classGroups.has(cName)) classGroups.set(cName, []);
+                    classGroups.get(cName).push(r);
+                });
+                classGroups.forEach((items, cName) => {
+                    const ws = XLSX.utils.aoa_to_sheet(buildSheetRows(`Kelas: ${cName}`, items));
+                    ws["!cols"] = colWidths;
+                    XLSX.utils.book_append_sheet(wb, ws, sanitizeExcelSheetName(cName, usedSheetNames));
+                });
             }
 
             XLSX.writeFile(wb, `rekap_nilai_cbt_${getTodayDateString()}.xlsx`);
             showToast(`File Excel (${filtered.length} peserta) berhasil diunduh!`, "success");
-        }
-
-        function exportResultsToCsv() {
-            if (examResults.length === 0) {
-                showToast("Belum ada data hasil untuk diunduh.", "error");
-                return;
-            }
-            const { filtered } = getFilteredResultsForExport();
-            if (filtered.length === 0) {
-                showToast("Tidak ada data hasil ujian sesuai filter kelas/mapel yang dipilih.", "error");
-                return;
-            }
-            const headers = ["Nama Siswa", "NISN", "Kelas", "Mata Pelajaran", "Nilai", "KKM", "Benar", "Salah", "Pindah Tab", "Waktu Selesai"];
-            const rows = filtered.map((r) => [
-                `"${(r.studentName || "").replace(/"/g, '""')}"`,
-                `"${(r.studentNisn || "").replace(/"/g, '""')}"`,
-                `"${(r.studentClass || "").replace(/"/g, '""')}"`,
-                `"${(r.subjectTitle || "").replace(/"/g, '""')}"`,
-                r.score,
-                r.kkm,
-                r.correctCount,
-                r.wrongCount,
-                r.tabWarnings,
-                `"${(r.finishedAt || "").replace(/"/g, '""')}"`
-            ].join(","));
-
-            const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
-            const a = document.createElement("a");
-            a.href = encodeURI(csvContent);
-            a.download = `rekap_nilai_cbt_${getTodayDateString()}.csv`;
-            a.click();
         }
 
         // ==================== PORTAL OPERATOR / ADMIN ====================
@@ -4577,7 +4543,7 @@
         function refreshOperatorAllViews() {
             updateOperatorBadges();
             renderOperatorNewSubjectClassCheckboxes();
-            renderOperatorSubjectFilterDropdown();
+            populateOperatorSubjectFilterDropdown();
             renderOperatorSubjectsList();
             renderOperatorClassesList();
             renderOperatorStudentCodeForms();
@@ -4597,7 +4563,7 @@
             document.getElementById("op-badge-teachers").textContent = teachersList.length;
         }
 
-        // --- Tab 1: Mata Pelajaran ---
+        // --- Tab Mata Pelajaran ---
         function renderOperatorNewSubjectClassCheckboxes() {
             const box = document.getElementById("op-new-subj-classes");
             if (!box) return;
@@ -4657,23 +4623,19 @@
             showToast(`Mata pelajaran "${title}" ditambahkan!`, "success");
         }
 
-        function renderOperatorSubjectFilterDropdown() {
-            const filterSel = document.getElementById("op-filter-subject-class");
-            if (!filterSel) return;
-            const curVal = filterSel.value || "ALL";
-            filterSel.innerHTML = `<option value="ALL">Semua Kelas (${subjects.length})</option>` +
+        function populateOperatorSubjectFilterDropdown() {
+            const sel = document.getElementById("op-filter-subject-class");
+            if (!sel) return;
+            const cur = sel.value || "ALL";
+            sel.innerHTML = `<option value="ALL">Semua Kelas (${subjects.length})</option>` +
                 classesList.map((cls) => {
-                    const cnt = subjects.filter((s) => !s.targetClasses || s.targetClasses.length === 0 || s.targetClasses.includes(cls)).length;
+                    const cnt = subjects.filter((s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(cls)).length;
                     return `<option value="${escapeHtml(cls)}">${escapeHtml(cls)} (${cnt})</option>`;
                 }).join("");
-            if (curVal === "ALL" || classesList.includes(curVal)) {
-                filterSel.value = curVal;
-            }
+            sel.value = (cur === "ALL" || classesList.includes(cur)) ? cur : "ALL";
         }
 
-        function moveOperatorSubject(subjId, delta) {
-            const idx = subjects.findIndex((s) => s.id === subjId);
-            if (idx === -1) return;
+        function moveOperatorSubject(idx, delta) {
             const target = idx + delta;
             if (target < 0 || target >= subjects.length) return;
             const tmp = subjects[idx];
@@ -4689,42 +4651,36 @@
             const filterCls = document.getElementById("op-filter-subject-class")?.value || "ALL";
             if (!listEl) return;
 
-            const indexedSubjects = subjects.map((s, originalIdx) => ({ subj: s, originalIdx }));
+            const indexedSubjects = subjects.map((s, originalIdx) => ({ s, originalIdx }));
             const filtered = filterCls === "ALL"
                 ? indexedSubjects
-                : indexedSubjects.filter(({ subj }) => !subj.targetClasses || subj.targetClasses.length === 0 || subj.targetClasses.includes(filterCls));
+                : indexedSubjects.filter(({ s }) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(filterCls));
 
             if (countPill) countPill.textContent = `${filtered.length} Mapel`;
 
             if (filtered.length === 0) {
-                listEl.innerHTML = `<p class="text-sm text-slate-500 py-3">Belum ada mata pelajaran untuk pilihan kelas ini.</p>`;
+                listEl.innerHTML = `<p class="text-sm text-slate-500">Belum ada mata pelajaran untuk filter kelas ini.</p>`;
                 return;
             }
 
-            listEl.innerHTML = filtered.map(({ subj: s, originalIdx }, displayIdx) => {
+            listEl.innerHTML = filtered.map(({ s, originalIdx }, displayIdx) => {
                 const clsLabel = (!s.targetClasses || s.targetClasses.length === 0) ? "Semua Kelas" : s.targetClasses.join(", ");
                 return `
                     <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div class="flex items-start sm:items-center gap-3 min-w-0">
-                            <span class="w-7 h-7 rounded-lg bg-white border border-slate-200 text-xs font-bold flex items-center justify-center text-slate-600 shrink-0">
-                                ${displayIdx + 1}
-                            </span>
-                            <div class="min-w-0">
+                        <div class="flex items-start gap-3">
+                            <span class="w-7 h-7 rounded-lg bg-white border border-slate-200 text-xs font-bold flex items-center justify-center text-slate-600 shrink-0 mt-0.5">${displayIdx + 1}</span>
+                            <div>
                                 <div class="font-bold text-slate-900 text-sm">${escapeHtml(s.title)}</div>
                                 <div class="text-xs text-slate-500 mt-0.5">
-                                    Soal: <strong>${s.questions.length}</strong> • Durasi: <strong>${s.durationMinutes} mnt</strong> • KKM: <strong>${s.kkm}</strong> • Kelas: <strong>${escapeHtml(clsLabel)}</strong>
+                                    Bank Soal: <strong>${s.questions.length}</strong> • Durasi: <strong>${s.durationMinutes} mnt</strong> • KKM: <strong>${s.kkm}</strong> • Kelas: <strong>${escapeHtml(clsLabel)}</strong>
                                 </div>
                             </div>
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
-                            <button type="button" ${originalIdx === 0 ? "disabled" : ""} onclick="moveOperatorSubject('${escapeHtml(s.id)}', -1)" title="Naikkan Urutan"
-                                class="px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-35 text-slate-700 font-bold text-xs">
-                                &uarr;
-                            </button>
-                            <button type="button" ${originalIdx === subjects.length - 1 ? "disabled" : ""} onclick="moveOperatorSubject('${escapeHtml(s.id)}', 1)" title="Turunkan Urutan"
-                                class="px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-35 text-slate-700 font-bold text-xs">
-                                &darr;
-                            </button>
+                            <button type="button" ${originalIdx === 0 ? "disabled" : ""} onclick="moveOperatorSubject(${originalIdx}, -1)" title="Naikkan Urutan"
+                                class="px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-35 text-slate-700 font-bold text-xs">&uarr;</button>
+                            <button type="button" ${originalIdx === subjects.length - 1 ? "disabled" : ""} onclick="moveOperatorSubject(${originalIdx}, 1)" title="Turunkan Urutan"
+                                class="px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-35 text-slate-700 font-bold text-xs">&darr;</button>
                             <button type="button" onclick="openEditSubjectOpModal('${escapeHtml(s.id)}')"
                                 class="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs">
                                 Edit
@@ -4746,15 +4702,17 @@
             document.getElementById("op-edit-subj-title").value = subj.title;
 
             const clsBox = document.getElementById("op-edit-subj-classes");
-            clsBox.innerHTML = classesList.map((cls) => {
-                const checked = (subj.targetClasses || []).includes(cls);
-                return `
-                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold cursor-pointer">
-                        <input type="checkbox" value="${escapeHtml(cls)}" ${checked ? "checked" : ""} class="op-edit-cls-cb rounded text-indigo-600">
-                        <span>${escapeHtml(cls)}</span>
-                    </label>
-                `;
-            }).join("");
+            if (clsBox) {
+                clsBox.innerHTML = classesList.map((cls) => {
+                    const checked = (subj.targetClasses || []).includes(cls);
+                    return `
+                        <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold cursor-pointer">
+                            <input type="checkbox" value="${escapeHtml(cls)}" ${checked ? "checked" : ""} class="op-edit-cls-cb rounded text-indigo-600">
+                            <span>${escapeHtml(cls)}</span>
+                        </label>
+                    `;
+                }).join("");
+            }
 
             const modal = document.getElementById("modal-edit-subject-op");
             modal.classList.remove("hidden");
@@ -4788,7 +4746,7 @@
             showToast("Mata pelajaran dihapus.", "info");
         }
 
-        // --- Tab 2: Pilihan Kelas ---
+        // --- Tab Pilihan Kelas ---
         function addOperatorClass(event) {
             event.preventDefault();
             const input = document.getElementById("op-new-class-name");
@@ -4847,7 +4805,31 @@
             `).join("");
         }
 
-        // --- Tab 3: Kode Akses Siswa ---
+        // --- Tab Kode Akses Siswa ---
+        function generateRandomStudentCode(classSelectId, targetInputId) {
+            const clsSel = document.getElementById(classSelectId);
+            const targetInp = document.getElementById(targetInputId);
+            if (!targetInp) return;
+
+            const rawClass = (clsSel?.value || classesList[0] || "X").toUpperCase();
+            const cleanClass = rawClass.replace(/[^A-Z0-9]/g, "") || "X";
+            const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+            let candidate = "";
+            let attempts = 0;
+            do {
+                const randChar = alphabet[Math.floor(Math.random() * alphabet.length)];
+                const randDigits = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
+                candidate = `MU-${cleanClass}-${randChar}${randDigits}`;
+                attempts++;
+            } while (
+                attempts < 50 &&
+                studentCodes.some((item) => String(item.code || "").toUpperCase() === candidate)
+            );
+
+            targetInp.value = candidate;
+        }
+
         function renderOperatorStudentCodeForms() {
             const addSel = document.getElementById("op-code-class-select");
             const filterSel = document.getElementById("op-filter-student-code-class");
@@ -4940,6 +4922,78 @@
             `).join("");
         }
 
+        function getOrderedClassGroupsForStudentCodes() {
+            const filterCls = document.getElementById("op-filter-student-code-class")?.value || "ALL";
+            const targetClasses = filterCls === "ALL" ? [...classesList] : [filterCls];
+
+            // Pastikan kelas yang ada di studentCodes namun tidak di classesList tetap ikut diekspor
+            if (filterCls === "ALL") {
+                studentCodes.forEach((sc) => {
+                    if (sc.className && !targetClasses.includes(sc.className)) {
+                        targetClasses.push(sc.className);
+                    }
+                });
+            }
+
+            return targetClasses
+                .map((cls) => ({
+                    className: cls,
+                    items: studentCodes.filter((item) => item.className === cls)
+                }))
+                .filter((g) => g.items.length > 0);
+        }
+
+        function sanitizeExcelSheetName(rawName, usedNamesSet) {
+            let base = String(rawName || "Sheet")
+                .replace(/[\\/?*[\]:]/g, "")
+                .trim()
+                .slice(0, 28) || "Sheet";
+            let unique = base;
+            let counter = 2;
+            while (usedNamesSet.has(unique.toLowerCase())) {
+                unique = `${base.slice(0, 25)}_${counter}`;
+                counter++;
+            }
+            usedNamesSet.add(unique.toLowerCase());
+            return unique;
+        }
+
+        function exportStudentCodesXlsx() {
+            if (studentCodes.length === 0) {
+                showToast("Belum ada kode akses siswa untuk diunduh.", "error");
+                return;
+            }
+
+            if (typeof XLSX === "undefined") {
+                showToast("Pustaka Excel tidak tersedia saat offline. Pastikan koneksi internet aktif.", "error");
+                return;
+            }
+
+            const groups = getOrderedClassGroupsForStudentCodes();
+            if (groups.length === 0) {
+                showToast("Tidak ada kode akses siswa pada kelas yang dipilih.", "error");
+                return;
+            }
+
+            const wb = XLSX.utils.book_new();
+            const usedSheetNames = new Set();
+
+            groups.forEach((group) => {
+                const sheetRows = [
+                    [`DAFTAR KODE AKSES PESERTA UJIAN - KELAS ${group.className.toUpperCase()}`],
+                    ["No", "Kelas", "Kode Akses Siswa"],
+                    ...group.items.map((item, idx) => [idx + 1, item.className, item.code])
+                ];
+                const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+                ws["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 24 }];
+                const sheetName = sanitizeExcelSheetName(group.className, usedSheetNames);
+                XLSX.utils.book_append_sheet(wb, ws, sheetName);
+            });
+
+            XLSX.writeFile(wb, `kode_akses_siswa_per_kelas_${getTodayDateString()}.xlsx`);
+            showToast(`File Excel (.xlsx) dengan ${groups.length} halaman kelas berhasil diunduh!`, "success");
+        }
+
         function openEditStudentCodeOpModal(id) {
             const item = studentCodes.find((s) => s.id === id);
             if (!item) return;
@@ -4992,163 +5046,24 @@
             showToast("Kode akses siswa dihapus.", "info");
         }
 
-        function generateRandomStudentCode(classSelectId, codeInputId) {
-            const classSel = document.getElementById(classSelectId);
-            const codeInp = document.getElementById(codeInputId);
-            if (!classSel || !codeInp) return;
-
-            const rawClass = (classSel.value || "X").trim().toUpperCase();
-            const cleanClass = rawClass.replace(/[^A-Z0-9]/g, "") || "X";
-            const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-            let generated = "";
-            for (let attempt = 0; attempt < 50; attempt++) {
-                const randLetter = alphabet.charAt(Math.floor(Math.random() * alphabet.length));
-                const randNumbers = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
-                const candidate = `MU-${cleanClass}-${randLetter}${randNumbers}`;
-                if (!studentCodes.some((item) => String(item.code || "").trim().toUpperCase() === candidate)) {
-                    generated = candidate;
-                    break;
-                }
-            }
-
-            if (!generated) {
-                const fallbackLetter = alphabet.charAt(Math.floor(Math.random() * alphabet.length));
-                const fallbackNumbers = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
-                generated = `MU-${cleanClass}-${fallbackLetter}${fallbackNumbers}`;
-            }
-
-            codeInp.value = generated;
-        }
-
-        function sanitizeExcelSheetName(rawName, usedNamesSet) {
-            let clean = String(rawName || "Kelas")
-                .replace(/[\\/?*[\]:]/g, " ")
-                .replace(/\s+/g, " ")
-                .trim();
-            if (!clean) clean = "Kelas";
-            clean = clean.slice(0, 31);
-
-            let candidate = clean;
-            let counter = 2;
-            while (usedNamesSet.has(candidate.toLowerCase())) {
-                const suffix = ` (${counter})`;
-                candidate = clean.slice(0, 31 - suffix.length) + suffix;
-                counter++;
-            }
-            usedNamesSet.add(candidate.toLowerCase());
-            return candidate;
-        }
-
-        function getOrderedClassGroupsForStudentCodes() {
-            const orderedClasses = [];
-            classesList.forEach((cls) => {
-                if (!orderedClasses.includes(cls)) orderedClasses.push(cls);
-            });
-            studentCodes.forEach((item) => {
-                if (item.className && !orderedClasses.includes(item.className)) {
-                    orderedClasses.push(item.className);
-                }
-            });
-
-            return orderedClasses
-                .map((cls) => ({
-                    className: cls,
-                    items: studentCodes.filter((item) => item.className === cls)
-                }))
-                .filter((group) => group.items.length > 0);
-        }
-
-        function exportStudentCodesXlsx() {
-            if (studentCodes.length === 0) {
-                showToast("Belum ada kode akses siswa untuk diunduh.", "error");
-                return;
-            }
-
-            if (typeof XLSX === "undefined") {
-                showToast("Pustaka Excel tidak tersedia saat offline. Mengunduh format .csv...", "info");
-                exportStudentCodesCsv();
-                return;
-            }
-
-            const groups = getOrderedClassGroupsForStudentCodes();
-            const wb = XLSX.utils.book_new();
-            const usedSheetNames = new Set();
-
-            groups.forEach((group) => {
-                const sheetRows = [
-                    [`DAFTAR KODE AKSES PESERTA UJIAN - KELAS ${group.className.toUpperCase()}`],
-                    ["No", "Kelas", "Kode Akses Siswa"],
-                    ...group.items.map((item, idx) => [idx + 1, item.className, item.code])
-                ];
-                const ws = XLSX.utils.aoa_to_sheet(sheetRows);
-                ws["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 24 }];
-                const sheetName = sanitizeExcelSheetName(group.className, usedSheetNames);
-                XLSX.utils.book_append_sheet(wb, ws, sheetName);
-            });
-
-            XLSX.writeFile(wb, `kode_akses_siswa_per_kelas_${getTodayDateString()}.xlsx`);
-            showToast(`File Excel (.xlsx) dengan ${groups.length} halaman kelas berhasil diunduh!`, "success");
-        }
-
-        function exportStudentCodesCsv() {
-            if (studentCodes.length === 0) {
-                showToast("Belum ada kode akses siswa untuk diunduh.", "error");
-                return;
-            }
-
-            const groups = getOrderedClassGroupsForStudentCodes();
-            const lines = [];
-
-            groups.forEach((group, gIdx) => {
-                if (gIdx > 0) {
-                    lines.push("");
-                    lines.push("");
-                }
-                lines.push(`"=== HALAMAN KELAS: ${group.className.replace(/"/g, '""')} ==="`);
-                lines.push("No,Kelas,Kode Akses Siswa");
-                group.items.forEach((item, idx) => {
-                    lines.push(`${idx + 1},"${String(item.className || "").replace(/"/g, '""')}","${String(item.code || "").replace(/"/g, '""')}"`);
-                });
-            });
-
-            const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `kode_akses_siswa_per_kelas_${getTodayDateString()}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            showToast("File CSV kode akses per kelas berhasil diunduh!", "success");
-        }
-
         // --- Tab Jadwal Ujian ---
         function renderOperatorScheduleView() {
             const enforceCb = document.getElementById("op-sched-enforce");
             const enforceTimeCb = document.getElementById("op-sched-enforce-time");
             const overrideInp = document.getElementById("op-sched-override-date");
             const todayDisp = document.getElementById("op-schedule-today-display");
-            const classSel = document.getElementById("op-sched-class-select");
+            const clsSel = document.getElementById("op-sched-class-select");
 
             if (enforceCb) enforceCb.checked = Boolean(appConfig.enforceScheduleDate);
             if (enforceTimeCb) enforceTimeCb.checked = Boolean(appConfig.enforceScheduleTime);
             if (overrideInp) overrideInp.value = appConfig.scheduleOverrideDate || "";
             if (todayDisp) todayDisp.textContent = formatIndoDate(getActiveScheduleReferenceDate());
 
-            if (classSel) {
-                const curClass = classSel.value || "ALL";
-                classSel.innerHTML = `<option value="ALL">Semua Kelas (${subjects.length} Mapel)</option>` +
-                    classesList.map((cls) => {
-                        const count = subjects.filter((s) =>
-                            !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(cls)
-                        ).length;
-                        return `<option value="${escapeHtml(cls)}">${escapeHtml(cls)} (${count} Mapel)</option>`;
-                    }).join("");
-                if (curClass === "ALL" || classesList.includes(curClass)) {
-                    classSel.value = curClass;
-                }
+            if (clsSel) {
+                const curCls = clsSel.value || "ALL";
+                clsSel.innerHTML = `<option value="ALL">Semua Kelas</option>` +
+                    classesList.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+                clsSel.value = (curCls === "ALL" || classesList.includes(curCls)) ? curCls : "ALL";
             }
 
             onOperatorScheduleClassChange();
@@ -5156,28 +5071,23 @@
         }
 
         function onOperatorScheduleClassChange() {
-            const selectedClass = document.getElementById("op-sched-class-select")?.value || "ALL";
+            const clsVal = document.getElementById("op-sched-class-select")?.value || "ALL";
             const subjSel = document.getElementById("op-sched-subject-select");
             if (!subjSel) return;
 
-            const filteredSubjects = selectedClass === "ALL"
+            const filtered = clsVal === "ALL"
                 ? subjects
-                : subjects.filter((s) =>
-                    !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(selectedClass)
-                );
+                : subjects.filter((s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(clsVal));
 
             const curSubj = subjSel.value;
-            if (filteredSubjects.length === 0) {
-                subjSel.innerHTML = `<option value="">-- Tidak ada mata pelajaran untuk kelas ${escapeHtml(selectedClass)} --</option>`;
+            if (filtered.length === 0) {
+                subjSel.innerHTML = `<option value="">-- Tidak ada mata pelajaran untuk kelas ini --</option>`;
             } else {
-                subjSel.innerHTML = filteredSubjects.map((s) =>
-                    `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`
-                ).join("");
-                if (curSubj && filteredSubjects.some((s) => s.id === curSubj)) {
+                subjSel.innerHTML = filtered.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`).join("");
+                if (curSubj && filtered.some((s) => s.id === curSubj)) {
                     subjSel.value = curSubj;
                 }
             }
-
             onOperatorScheduleSubjectSelect();
         }
 
@@ -5288,7 +5198,7 @@
             }).join("");
         }
 
-        // --- Tab 5: Kode Akses Guru ---
+        // --- Tab Kode Akses Guru ---
         function generateRandomTeacherCode(inputId) {
             const rand = "GURU" + Math.floor(100 + Math.random() * 900);
             const el = document.getElementById(inputId);
@@ -5301,15 +5211,56 @@
             box.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
         }
 
+        // Mengisi pilihan filter kelas untuk pemilihan hak akses mata pelajaran guru
+        function populateTeacherClassFilterDropdown(selectId) {
+            const sel = document.getElementById(selectId);
+            if (!sel) return;
+            const cur = sel.value || "ALL";
+            sel.innerHTML = `<option value="ALL">Semua Kelas (${subjects.length})</option>` +
+                classesList.map((cls) => {
+                    const cnt = subjects.filter((s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(cls)).length;
+                    return `<option value="${escapeHtml(cls)}">${escapeHtml(cls)} (${cnt})</option>`;
+                }).join("");
+            sel.value = (cur === "ALL" || classesList.includes(cur)) ? cur : "ALL";
+        }
+
+        // Menyaring tampilan checkbox mata pelajaran berdasarkan kelas tanpa menghapus centangan yang sudah dipilih
+        function filterTeacherSubjectCheckboxes(containerId, selectedClass, emptyMsgId) {
+            const box = document.getElementById(containerId);
+            const emptyEl = emptyMsgId ? document.getElementById(emptyMsgId) : null;
+            if (!box) return;
+
+            let visibleCount = 0;
+            box.querySelectorAll("label[data-subj-id]").forEach((lbl) => {
+                const subjId = lbl.getAttribute("data-subj-id");
+                const subj = subjects.find((s) => s.id === subjId);
+                const matches = !selectedClass || selectedClass === "ALL" ||
+                    !subj || !Array.isArray(subj.targetClasses) || subj.targetClasses.length === 0 ||
+                    subj.targetClasses.includes(selectedClass);
+
+                lbl.classList.toggle("hidden", !matches);
+                lbl.classList.toggle("inline-flex", matches);
+                if (matches) visibleCount++;
+            });
+
+            if (emptyEl) {
+                emptyEl.classList.toggle("hidden", visibleCount > 0);
+            }
+        }
+
         function renderOperatorTeachersView() {
+            populateTeacherClassFilterDropdown("op-new-teacher-class-filter");
+            const classFilterVal = document.getElementById("op-new-teacher-class-filter")?.value || "ALL";
+
             const subjBox = document.getElementById("op-new-teacher-subjects");
             if (subjBox) {
                 subjBox.innerHTML = subjects.map((s) => `
-                    <label class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold cursor-pointer">
+                    <label data-subj-id="${escapeHtml(s.id)}" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold cursor-pointer">
                         <input type="checkbox" value="${escapeHtml(s.id)}" class="op-new-tch-subj-cb rounded text-indigo-600">
                         <span>${escapeHtml(s.title)}</span>
                     </label>
                 `).join("");
+                filterTeacherSubjectCheckboxes("op-new-teacher-subjects", classFilterVal, "op-new-teacher-subjects-empty");
             }
 
             const listEl = document.getElementById("op-teachers-list");
@@ -5399,16 +5350,21 @@
             document.getElementById("op-edit-teacher-name").value = t.name;
             document.getElementById("op-edit-teacher-code").value = t.code;
 
+            populateTeacherClassFilterDropdown("op-edit-teacher-class-filter");
+            const editFilterSel = document.getElementById("op-edit-teacher-class-filter");
+            if (editFilterSel) editFilterSel.value = "ALL";
+
             const box = document.getElementById("op-edit-teacher-subjects");
             box.innerHTML = subjects.map((s) => {
                 const checked = (t.subjectIds || []).includes(s.id);
                 return `
-                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold cursor-pointer">
+                    <label data-subj-id="${escapeHtml(s.id)}" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold cursor-pointer">
                         <input type="checkbox" value="${escapeHtml(s.id)}" ${checked ? "checked" : ""} class="op-edit-tch-subj-cb rounded text-indigo-600">
                         <span>${escapeHtml(s.title)}</span>
                     </label>
                 `;
             }).join("");
+            filterTeacherSubjectCheckboxes("op-edit-teacher-subjects", "ALL", "op-edit-teacher-subjects-empty");
 
             const modal = document.getElementById("modal-edit-teacher-op");
             modal.classList.remove("hidden");
