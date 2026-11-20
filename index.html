@@ -217,6 +217,9 @@
                         <span id="exam-integrity-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             Pengawas Aktif
                         </span>
+                        <span id="exam-cache-status-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                            Cache Lokal • Sync 5 Mnt
+                        </span>
                     </div>
                     <p id="exam-student-meta" class="text-xs text-slate-500 mt-0.5 truncate">Peserta: -</p>
                 </div>
@@ -807,8 +810,24 @@
                     </form>
                 </div>
 
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-3">
-                    <h3 class="font-bold text-slate-900 text-base">Daftar Mata Pelajaran Terdaftar</h3>
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h3 class="font-bold text-slate-900 text-base">Daftar Mata Pelajaran Terdaftar</h3>
+                                <span id="op-subjects-count-pill" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">0 Mapel</span>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">Filter berdasarkan kelas atau gunakan panah naik/turun untuk mengatur urutan mata pelajaran.</p>
+                        </div>
+
+                        <div class="flex items-center gap-2 shrink-0">
+                            <label for="op-filter-subject-class" class="text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:inline">Filter Kelas:</label>
+                            <select id="op-filter-subject-class" onchange="renderOperatorSubjectsList()"
+                                class="w-full sm:w-52 px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 hover:bg-white text-xs sm:text-sm font-semibold text-slate-700 outline-none focus:border-indigo-500 transition">
+                                <option value="ALL">Semua Kelas</option>
+                            </select>
+                        </div>
+                    </div>
                     <div id="op-subjects-list" class="space-y-2.5"></div>
                 </div>
             </div>
@@ -1554,6 +1573,10 @@
             enabled: false,
             ready: false,
             saveState: async () => {},
+            fetchSubjectPackageOnce: async () => null,
+            checkStudentAttemptOnce: async () => false,
+            saveDraft: async () => false,
+            saveAttemptMarker: async () => {},
             saveResult: async () => {},
             deleteResult: async () => {},
             refreshResults: async () => false
@@ -1613,6 +1636,56 @@
                             console.warn("Gagal menyimpan state ke cloud:", err);
                         }
                     },
+                    // 1 kali document read saat mulai ujian untuk mengambil array seluruh soal mapel
+                    fetchSubjectPackageOnce: async (subjectId) => {
+                        try {
+                            const snap = await getDoc(stateDocRef);
+                            if (!snap.exists()) return null;
+                            const data = snap.data();
+                            if (data && Array.isArray(data.subjects)) {
+                                return data.subjects.find((s) => s.id === subjectId) || null;
+                            }
+                            return null;
+                        } catch (err) {
+                            console.warn("Gagal mengambil paket soal dari cloud:", err);
+                            return null;
+                        }
+                    },
+                    // 1 kali document read untuk cek apakah siswa sudah pernah mengerjakan mapel ini
+                    checkStudentAttemptOnce: async (subjectId, studentNisn) => {
+                        try {
+                            const cleanNisn = String(studentNisn || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+                            if (!subjectId || !cleanNisn) return false;
+                            const attemptDoc = doc(db, "cbt_exam_attempts", `${subjectId}_${cleanNisn}`);
+                            const snap = await getDoc(attemptDoc);
+                            return snap.exists();
+                        } catch (err) {
+                            console.warn("Gagal memeriksa riwayat pengerjaan siswa:", err);
+                            return false;
+                        }
+                    },
+                    // Simpan jawaban sementara berkala (setiap 5 menit) untuk hemat kuota writes
+                    saveDraft: async (draftObj) => {
+                        try {
+                            if (!draftObj || !draftObj.draftId) return false;
+                            const draftDoc = doc(db, "cbt_exam_drafts", String(draftObj.draftId));
+                            await setDoc(draftDoc, draftObj, { merge: true });
+                            return true;
+                        } catch (err) {
+                            console.warn("Gagal menyinkronkan draft jawaban ke cloud:", err);
+                            return false;
+                        }
+                    },
+                    saveAttemptMarker: async (attemptObj) => {
+                        try {
+                            const cleanNisn = String(attemptObj.studentNisn || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+                            if (!attemptObj.subjectId || !cleanNisn) return;
+                            const attemptDoc = doc(db, "cbt_exam_attempts", `${attemptObj.subjectId}_${cleanNisn}`);
+                            await setDoc(attemptDoc, attemptObj, { merge: true });
+                        } catch (err) {
+                            console.warn("Gagal menyimpan penanda peserta ujian:", err);
+                        }
+                    },
                     saveResult: async (resultObj) => {
                         try {
                             const resDoc = doc(db, "cbt_exam_results", String(resultObj.id));
@@ -1650,6 +1723,7 @@
                     window.updateCloudStatusBadge(true);
                 }
 
+                // Tarik state utama dari Firestore saat pertama dimuat
                 try {
                     const snap = await getDoc(stateDocRef);
                     if (snap.exists() && typeof window.applyRemoteState === "function") {
@@ -1661,6 +1735,7 @@
                     console.warn("Gagal membaca state awal cloud:", readErr);
                 }
 
+                // Tarik daftar hasil ujian dari Firestore
                 await window.cloudSync.refreshResults();
             } catch (err) {
                 console.warn("Mode offline aktif karena koneksi Firebase gagal:", err);
@@ -1682,8 +1757,13 @@
             TEACHERS: "cbt_mu_teachers_v2",
             CONFIG: "cbt_mu_config_v2",
             RESULTS: "cbt_mu_results_v2",
-            ATTEMPTED: "cbt_mu_attempted_v2"
+            ATTEMPTED: "cbt_mu_attempted_v2",
+            EXAM_PACKAGE_CACHE: "cbt_mu_exam_package_cache_v2",
+            EXAM_DRAFT_CACHE: "cbt_mu_exam_draft_v2"
         };
+
+        // Interval sinkronisasi jawaban sementara ke Firebase (5 menit sekali)
+        const EXAM_CLOUD_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
         function getTodayDateString() {
             const now = new Date();
@@ -1878,7 +1958,7 @@
         let teachersList = [];
         let appConfig = { ...DEFAULT_APP_CONFIG };
         let examResults = [];
-        let attemptedRecords = [];
+        let attemptedExams = [];
 
         let currentScreen = "welcome";
         let verifiedClassName = "";
@@ -1892,6 +1972,8 @@
 
         let examSession = null;
         let examTimerInterval = null;
+        let examPeriodicSyncInterval = null;
+        let hasUnsyncedDraftChanges = false;
         let lastFinishedResult = null;
 
         // ==================== UTILITAS UMUM ====================
@@ -1941,7 +2023,7 @@
         function normalizeSubject(subj) {
             const questions = Array.isArray(subj.questions) ? subj.questions : [];
             const validIds = new Set(questions.map((q) => q.id));
-            const activeIds = Array.isArray(subj.activeQuestionIds)
+            let activeIds = Array.isArray(subj.activeQuestionIds)
                 ? subj.activeQuestionIds.filter((id) => validIds.has(id))
                 : questions.map((q) => q.id);
 
@@ -2023,10 +2105,10 @@
 
             try {
                 const rawAttempted = localStorage.getItem(STORAGE_KEYS.ATTEMPTED);
-                attemptedRecords = rawAttempted ? JSON.parse(rawAttempted) : [];
-                if (!Array.isArray(attemptedRecords)) attemptedRecords = [];
+                attemptedExams = rawAttempted ? JSON.parse(rawAttempted) : [];
+                if (!Array.isArray(attemptedExams)) attemptedExams = [];
             } catch (e) {
-                attemptedRecords = [];
+                attemptedExams = [];
             }
         }
 
@@ -2038,7 +2120,7 @@
                 localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(appConfig));
                 localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(subjects));
                 localStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(examResults));
-                localStorage.setItem(STORAGE_KEYS.ATTEMPTED, JSON.stringify(attemptedRecords));
+                localStorage.setItem(STORAGE_KEYS.ATTEMPTED, JSON.stringify(attemptedExams));
             } catch (e) {
                 console.warn("Penyimpanan lokal penuh atau dibatasi:", e);
             }
@@ -2107,6 +2189,8 @@
             updateTeacherResultsBadge();
             if (currentScreen === "teacher") {
                 renderTeacherResultsTable();
+            } else if (currentScreen === "login") {
+                updateSubjectPreviewCard();
             }
         };
 
@@ -2167,6 +2251,7 @@
             if (loginTitle) loginTitle.textContent = appConfig.loginTitle || "Selamat Datang di Aplikasi Ujian Semester";
             if (loginSub) loginSub.textContent = appConfig.loginSubtitle || "Masukkan kode akses kelas Anda untuk melanjutkan ke pengisian data diri peserta.";
 
+            // Logo di Header & Halaman Depan
             const headerLogoBox = document.getElementById("header-logo-container");
             const frontLogoBox = document.getElementById("frontpage-school-logo-box");
             if (appConfig.schoolLogo) {
@@ -2189,6 +2274,7 @@
                 }
             }
 
+            // Tombol Portal Guru
             const teacherBtn = document.getElementById("btn-header-teacher");
             if (teacherBtn) {
                 teacherBtn.classList.toggle("hidden", appConfig.showTeacherPortal === false);
@@ -2230,8 +2316,13 @@
                 clearInterval(examTimerInterval);
                 examTimerInterval = null;
             }
+            if (examPeriodicSyncInterval && screenName !== "exam") {
+                clearInterval(examPeriodicSyncInterval);
+                examPeriodicSyncInterval = null;
+            }
 
             if (screenName === "welcome") {
+                verifiedClassName = "";
                 const codeInp = document.getElementById("student-access-code");
                 const nameInp = document.getElementById("student-name");
                 const nisnInp = document.getElementById("student-nisn");
@@ -2290,12 +2381,6 @@
                 classBadge.classList.remove("hidden");
             }
 
-            if (window.cloudSync && window.cloudSync.ready) {
-                window.cloudSync.refreshResults().then(() => {
-                    if (currentScreen === "login") updateSubjectPreviewCard();
-                });
-            }
-
             refreshStudentSubjectDropdown();
             goToScreen("login");
         }
@@ -2327,6 +2412,48 @@
             return true;
         }
 
+        function hasStudentCompletedSubject(subjectId, studentNisn, studentName, studentClass) {
+            const normNisn = String(studentNisn || "").trim().toLowerCase();
+            const normName = String(studentName || "").trim().toLowerCase();
+            const normClass = String(studentClass || "").trim().toLowerCase();
+
+            if (!subjectId) return false;
+
+            const inAttempted = attemptedExams.some((a) => {
+                if (a.subjectId !== subjectId) return false;
+                const aNisn = String(a.studentNisn || "").trim().toLowerCase();
+                const aName = String(a.studentName || "").trim().toLowerCase();
+                const aClass = String(a.studentClass || "").trim().toLowerCase();
+                if (normNisn && aNisn && normNisn === aNisn) return true;
+                if (normName && aName && normName === aName && normClass === aClass) return true;
+                return false;
+            });
+            if (inAttempted) return true;
+
+            return examResults.some((r) => {
+                if (r.subjectId !== subjectId) return false;
+                const rNisn = String(r.studentNisn || "").trim().toLowerCase();
+                const rName = String(r.studentName || "").trim().toLowerCase();
+                const rClass = String(r.studentClass || "").trim().toLowerCase();
+                if (normNisn && rNisn && normNisn === rNisn) return true;
+                if (normName && rName && normName === rName && normClass === rClass) return true;
+                return false;
+            });
+        }
+
+        function recordStudentAttemptLocally(subjectId, studentNisn, studentName, studentClass) {
+            if (!hasStudentCompletedSubject(subjectId, studentNisn, studentName, studentClass)) {
+                attemptedExams.push({
+                    subjectId,
+                    studentNisn: String(studentNisn || "").trim(),
+                    studentName: String(studentName || "").trim(),
+                    studentClass: String(studentClass || "").trim(),
+                    completedAt: new Date().toISOString()
+                });
+                saveAllDataToStorage(false);
+            }
+        }
+
         function refreshStudentSubjectDropdown() {
             const classVal = document.getElementById("student-class").value || verifiedClassName;
             const subjSelect = document.getElementById("student-subject");
@@ -2356,28 +2483,6 @@
             }
 
             updateSubjectPreviewCard();
-        }
-
-        function hasStudentCompletedSubject(subjectId, nisn, studentName, studentClass) {
-            if (!subjectId) return false;
-            const normNisn = String(nisn || "").trim().toLowerCase();
-            const normName = String(studentName || "").trim().toLowerCase();
-            const normClass = String(studentClass || "").trim().toLowerCase();
-
-            if (!normNisn && !normName) return false;
-
-            const matchesRecord = (rec) => {
-                if (!rec || rec.subjectId !== subjectId) return false;
-                const rNisn = String(rec.studentNisn || "").trim().toLowerCase();
-                const rName = String(rec.studentName || "").trim().toLowerCase();
-                const rClass = String(rec.studentClass || "").trim().toLowerCase();
-
-                if (normNisn && rNisn && normNisn === rNisn) return true;
-                if (normName && normClass && rName && rClass && normName === rName && normClass === rClass) return true;
-                return false;
-            };
-
-            return examResults.some(matchesRecord) || attemptedRecords.some(matchesRecord);
         }
 
         function updateSubjectPreviewCard() {
@@ -2413,7 +2518,7 @@
 
             if (hasStudentCompletedSubject(subj.id, studentNisn, studentName, studentClass)) {
                 if (warningBox) {
-                    warningBox.textContent = `Anda sudah mengerjakan ujian "${subj.title}". Setiap peserta hanya diperbolehkan mengerjakan 1 kali untuk masing-masing mata pelajaran.`;
+                    warningBox.textContent = `Anda sudah pernah menyelesaikan ujian "${subj.title}". Setiap peserta hanya diperbolehkan mengerjakan 1 kali untuk masing-masing mata pelajaran.`;
                     warningBox.classList.remove("hidden");
                 }
                 if (startBtn) startBtn.disabled = true;
@@ -2439,6 +2544,104 @@
             return ids.map((id) => qMap.get(id)).filter(Boolean);
         }
 
+        // ==================== CACHE PAKET SOAL & JAWABAN SEMENTARA SISWA ====================
+        function saveExamPackageToLocalCache(packageData) {
+            try {
+                localStorage.setItem(STORAGE_KEYS.EXAM_PACKAGE_CACHE, JSON.stringify(packageData));
+            } catch (e) {
+                console.warn("Gagal menyimpan cache paket soal di browser:", e);
+            }
+        }
+
+        function loadExamPackageFromLocalCache(subjectId) {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEYS.EXAM_PACKAGE_CACHE);
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                if (parsed && parsed.subjectId === subjectId && Array.isArray(parsed.questions)) {
+                    return parsed;
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        function clearExamLocalCaches() {
+            try {
+                localStorage.removeItem(STORAGE_KEYS.EXAM_PACKAGE_CACHE);
+                localStorage.removeItem(STORAGE_KEYS.EXAM_DRAFT_CACHE);
+            } catch (e) {}
+            hasUnsyncedDraftChanges = false;
+        }
+
+        function buildExamDraftPayload(status = "in_progress") {
+            if (!examSession) return null;
+            const cleanNisn = String(examSession.studentNisn || "anon").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+            return {
+                draftId: `${examSession.subjectId}_${cleanNisn}`,
+                studentName: examSession.studentName,
+                studentNisn: examSession.studentNisn,
+                studentClass: examSession.studentClass,
+                subjectId: examSession.subjectId,
+                subjectTitle: examSession.subjectTitle,
+                answers: examSession.answers,
+                doubts: examSession.doubts,
+                currentIndex: examSession.currentIndex,
+                remainingSeconds: examSession.remainingSeconds,
+                tabWarnings: examSession.tabWarnings,
+                status,
+                updatedAt: new Date().toISOString()
+            };
+        }
+
+        // Dipanggil setiap siswa menjawab/navigasi: hanya menulis ke localStorage (0 writes ke Firebase)
+        function saveExamDraftToLocalCache() {
+            if (!examSession) return;
+            const payload = buildExamDraftPayload("in_progress");
+            if (!payload) return;
+            try {
+                localStorage.setItem(STORAGE_KEYS.EXAM_DRAFT_CACHE, JSON.stringify(payload));
+                hasUnsyncedDraftChanges = true;
+            } catch (e) {
+                console.warn("Gagal menyimpan draft jawaban lokal:", e);
+            }
+        }
+
+        function updateExamCacheStatusBadge(text) {
+            const badge = document.getElementById("exam-cache-status-badge");
+            if (badge) badge.textContent = text;
+        }
+
+        // Kirim jawaban sementara ke Firebase secara berkala (5 menit sekali)
+        async function syncExamDraftToCloud(force = false) {
+            if (!examSession || currentScreen !== "exam") return;
+            if (!force && !hasUnsyncedDraftChanges) return;
+            if (!window.cloudSync || !window.cloudSync.ready) {
+                updateExamCacheStatusBadge("Tersimpan Lokal (Offline)");
+                return;
+            }
+
+            const payload = buildExamDraftPayload("in_progress");
+            if (!payload) return;
+
+            updateExamCacheStatusBadge("Menyinkronkan...");
+            const ok = await window.cloudSync.saveDraft(payload);
+            if (ok) {
+                hasUnsyncedDraftChanges = false;
+                const timeStr = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+                updateExamCacheStatusBadge(`Tersinkron ${timeStr} • Auto 5 Mnt`);
+            } else {
+                updateExamCacheStatusBadge("Cache Lokal • Sync 5 Mnt");
+            }
+        }
+
+        function startPeriodicDraftCloudSync() {
+            clearInterval(examPeriodicSyncInterval);
+            updateExamCacheStatusBadge("Cache Lokal • Sync 5 Mnt");
+            examPeriodicSyncInterval = setInterval(() => {
+                syncExamDraftToCloud(false);
+            }, EXAM_CLOUD_SYNC_INTERVAL_MS);
+        }
+
         // ==================== SESI UJIAN SISWA ====================
         async function handleStudentLogin(event) {
             event.preventDefault();
@@ -2454,43 +2657,75 @@
             }
 
             const startBtn = document.getElementById("btn-start-exam");
-            if (window.cloudSync && window.cloudSync.ready) {
-                if (startBtn) startBtn.disabled = true;
-                await window.cloudSync.refreshResults();
-                if (startBtn) startBtn.disabled = false;
+            if (startBtn) startBtn.disabled = true;
+
+            // 1. Cek riwayat pengerjaan (lokal + 1 document read ringan jika online)
+            let alreadyCompleted = hasStudentCompletedSubject(subj.id, studentNisn, studentName, studentClass);
+            if (!alreadyCompleted && window.cloudSync && window.cloudSync.ready && studentNisn) {
+                alreadyCompleted = await window.cloudSync.checkStudentAttemptOnce(subj.id, studentNisn);
             }
 
-            if (hasStudentCompletedSubject(subj.id, studentNisn, studentName, studentClass)) {
+            if (alreadyCompleted) {
+                if (startBtn) startBtn.disabled = false;
                 updateSubjectPreviewCard();
                 showToast(`Anda sudah menyelesaikan ujian "${subj.title}" (maksimal 1 kali pengerjaan).`, "error");
                 return;
             }
 
-            const activeQuestions = getSubjectActiveQuestions(subj);
+            // 2. Muat seluruh paket soal sekaligus dalam 1 kali pembacaan (1 document read) lalu simpan di localStorage
+            let sourceSubject = subj;
+            if (window.cloudSync && window.cloudSync.ready) {
+                const remoteSubj = await window.cloudSync.fetchSubjectPackageOnce(subj.id);
+                if (remoteSubj) {
+                    sourceSubject = normalizeSubject(remoteSubj);
+                    const localIdx = subjects.findIndex((s) => s.id === subj.id);
+                    if (localIdx !== -1) subjects[localIdx] = sourceSubject;
+                }
+            }
+
+            if (startBtn) startBtn.disabled = false;
+
+            const activeQuestions = getSubjectActiveQuestions(sourceSubject);
             if (activeQuestions.length === 0) {
                 showToast("Soal ujian belum tersedia pada mata pelajaran ini.", "error");
                 return;
             }
 
+            // Simpan paket soal utuh ke localStorage agar tombol "Soal Berikutnya" tidak pernah memanggil Firebase
+            const cachedPackage = {
+                subjectId: sourceSubject.id,
+                subjectTitle: sourceSubject.title,
+                kkm: sourceSubject.kkm,
+                durationMinutes: Number(sourceSubject.durationMinutes) || 60,
+                showScoreToStudent: sourceSubject.showScoreToStudent !== false,
+                showReviewToStudent: sourceSubject.showReviewToStudent !== false,
+                questions: JSON.parse(JSON.stringify(activeQuestions)),
+                cachedAt: new Date().toISOString()
+            };
+            saveExamPackageToLocalCache(cachedPackage);
+            const localPackage = loadExamPackageFromLocalCache(sourceSubject.id) || cachedPackage;
+
             examSession = {
                 studentName,
                 studentNisn,
                 studentClass,
-                subjectId: subj.id,
-                subjectTitle: subj.title,
-                kkm: subj.kkm,
-                showScoreToStudent: subj.showScoreToStudent !== false,
-                showReviewToStudent: subj.showReviewToStudent !== false,
-                questions: JSON.parse(JSON.stringify(activeQuestions)),
+                subjectId: localPackage.subjectId,
+                subjectTitle: localPackage.subjectTitle,
+                kkm: localPackage.kkm,
+                showScoreToStudent: localPackage.showScoreToStudent,
+                showReviewToStudent: localPackage.showReviewToStudent,
+                questions: localPackage.questions,
                 currentIndex: 0,
-                answers: new Array(activeQuestions.length).fill(null),
-                doubts: new Array(activeQuestions.length).fill(false),
-                remainingSeconds: (Number(subj.durationMinutes) || 60) * 60,
+                answers: new Array(localPackage.questions.length).fill(null),
+                doubts: new Array(localPackage.questions.length).fill(false),
+                remainingSeconds: localPackage.durationMinutes * 60,
                 tabWarnings: 0,
                 startedAt: new Date().toISOString()
             };
 
-            document.getElementById("exam-subject-title").textContent = subj.title;
+            saveExamDraftToLocalCache();
+
+            document.getElementById("exam-subject-title").textContent = localPackage.subjectTitle;
             document.getElementById("exam-student-meta").textContent = `${studentName} (${studentNisn}) • Kelas ${studentClass}`;
 
             const integrityBadge = document.getElementById("exam-integrity-badge");
@@ -2505,6 +2740,7 @@
             renderCurrentQuestion();
             renderQuestionNavGrids();
             startExamTimer();
+            startPeriodicDraftCloudSync();
         }
 
         function startExamTimer() {
@@ -2713,9 +2949,11 @@
         }
 
         // Perubahan jawaban TIDAK mematikan status Ragu-ragu; Ragu-ragu tetap menyala hingga dimatikan manual oleh siswa.
+        // Jawaban sementara disimpan di localStorage (tidak mengirim write ke Firebase setiap klik).
         function selectSingleOption(optIdx) {
             if (!examSession) return;
             examSession.answers[examSession.currentIndex] = optIdx;
+            saveExamDraftToLocalCache();
             renderCurrentQuestion();
         }
 
@@ -2730,12 +2968,14 @@
                 cur.sort((a, b) => a - b);
             }
             examSession.answers[idx] = cur;
+            saveExamDraftToLocalCache();
             renderCurrentQuestion();
         }
 
         function updateShortAnswer(val) {
             if (!examSession) return;
             examSession.answers[examSession.currentIndex] = val;
+            saveExamDraftToLocalCache();
             updateQuestionStatusPill();
             renderQuestionNavGrids();
         }
@@ -2749,6 +2989,7 @@
                 : new Array((q.pairs || []).length).fill("");
             arr[pairIdx] = val;
             examSession.answers[idx] = arr;
+            saveExamDraftToLocalCache();
             updateQuestionStatusPill();
             renderQuestionNavGrids();
         }
@@ -2756,6 +2997,7 @@
         function updateEssayAnswer(val) {
             if (!examSession) return;
             examSession.answers[examSession.currentIndex] = val;
+            saveExamDraftToLocalCache();
             updateQuestionStatusPill();
             renderQuestionNavGrids();
         }
@@ -2763,15 +3005,18 @@
         function toggleDoubtFlag(checked) {
             if (!examSession) return;
             examSession.doubts[examSession.currentIndex] = Boolean(checked);
+            saveExamDraftToLocalCache();
             updateQuestionStatusPill();
             renderQuestionNavGrids();
         }
 
+        // Navigasi antar soal membaca langsung dari paket soal di cache browser (0 reads ke Firebase)
         function navigateQuestion(delta) {
             if (!examSession) return;
             const nextIdx = examSession.currentIndex + delta;
             if (nextIdx >= 0 && nextIdx < examSession.questions.length) {
                 examSession.currentIndex = nextIdx;
+                saveExamDraftToLocalCache();
                 renderCurrentQuestion();
             }
         }
@@ -2780,6 +3025,7 @@
             if (!examSession) return;
             if (idx >= 0 && idx < examSession.questions.length) {
                 examSession.currentIndex = idx;
+                saveExamDraftToLocalCache();
                 renderCurrentQuestion();
                 toggleMobileNavModal(false);
             }
@@ -2897,6 +3143,7 @@
                 const allCorrect = pairs.length > 0 && matchedCount === pairs.length;
                 return { isObjective: true, isCorrect: allCorrect, points: allCorrect ? 1 : 0, maxPoints: 1 };
             }
+            // Essay dinilai manual oleh guru
             return { isObjective: false, isCorrect: false, points: 0, maxPoints: 1 };
         }
 
@@ -2904,9 +3151,12 @@
             closeSubmitConfirmModal();
             if (!examSession) return;
             clearInterval(examTimerInterval);
+            clearInterval(examPeriodicSyncInterval);
+            examPeriodicSyncInterval = null;
 
             const total = examSession.questions.length;
             let objectivePoints = 0;
+            let objectiveCount = 0;
             let wrongCount = 0;
             let hasEssay = false;
             const details = [];
@@ -2915,6 +3165,7 @@
                 const ans = examSession.answers[idx];
                 const evalRes = evaluateQuestionItem(q, ans);
                 if (evalRes.isObjective) {
+                    objectiveCount++;
                     if (evalRes.isCorrect) objectivePoints++;
                     else wrongCount++;
                 } else {
@@ -2964,17 +3215,27 @@
             };
 
             examResults.unshift(resultObj);
-            attemptedRecords.unshift({
-                resultId: resultObj.id,
-                subjectId: resultObj.subjectId,
-                studentNisn: resultObj.studentNisn,
-                studentName: resultObj.studentName,
-                studentClass: resultObj.studentClass
-            });
+            recordStudentAttemptLocally(
+                examSession.subjectId,
+                examSession.studentNisn,
+                examSession.studentName,
+                examSession.studentClass
+            );
             saveAllDataToStorage(false);
             if (window.cloudSync && window.cloudSync.ready) {
                 window.cloudSync.saveResult(resultObj);
+                window.cloudSync.saveAttemptMarker({
+                    resultId: resultObj.id,
+                    subjectId: resultObj.subjectId,
+                    studentNisn: resultObj.studentNisn,
+                    studentName: resultObj.studentName,
+                    studentClass: resultObj.studentClass,
+                    finishedAt: resultObj.finishedAt
+                });
             }
+
+            // Bersihkan cache paket soal & draft jawaban sementara setelah berhasil dikumpulkan
+            clearExamLocalCaches();
 
             lastFinishedResult = resultObj;
             examSession = null;
@@ -3098,9 +3359,11 @@
             box.classList.toggle("hidden");
         }
 
+        // Pengawas pindah tab / kehilangan fokus jendela
         document.addEventListener("visibilitychange", () => {
             if (document.hidden && currentScreen === "exam" && examSession && appConfig.enableIntegrityMonitor) {
                 examSession.tabWarnings += 1;
+                saveExamDraftToLocalCache();
                 showToast(`Peringatan Pengawas: Terdeteksi meninggalkan halaman ujian (${examSession.tabWarnings}x).`, "error");
             }
         });
@@ -3141,12 +3404,6 @@
             refreshTeacherPortalViews();
             switchTeacherTab("bank");
             goToScreen("teacher");
-        }
-
-        function logoutTeacher() {
-            loggedInTeacher = null;
-            goToScreen("welcome");
-            openTeacherPinModal();
         }
 
         function switchTeacherTab(tabName) {
@@ -3626,6 +3883,7 @@
             reader.readAsText(file);
         }
 
+        // Memasukkan soal dari Bank Soal ke halaman soal yang akan diujikan (2. Kelola Soal)
         function inputQuestionToExam(qId) {
             const subjId = document.getElementById("teacher-subject-select").value;
             const subj = subjects.find((s) => s.id === subjId);
@@ -3745,7 +4003,7 @@
             const activeQs = getSubjectActiveQuestions(subj);
             if (countBadge) countBadge.textContent = `${activeQs.length} Soal Diujikan`;
             if (metaText) {
-                metaText.textContent = `${subj.title} • ${activeQs.length} dari ${subj.questions.length} soal Bank Soal siap diujikan • Durasi: ${subj.durationMinutes} Menit • KKM: ${subj.kkm}`;
+                metaText.textContent = `${subj.title} • ${activeQs.length} dari ${subj.questions.length} soal Bank Soal siap diujikan • Durasi: ${subj.durationMinutes} Menit • KKM: ${subj.kkm}.`;
             }
 
             if (activeQs.length === 0) {
@@ -3810,23 +4068,24 @@
             showToast("Soal dikeluarkan dari daftar ujian dan dikembalikan ke Bank Soal.", "info");
         }
 
-        function saveTeacherExamSettings(showNotify = true) {
-            const subjId = document.getElementById("manage-subject-select").value;
+        function saveTeacherExamSettings(showNotification = true) {
+            const subjId = document.getElementById("manage-subject-select")?.value;
             const subj = subjects.find((s) => s.id === subjId);
             if (!subj) return;
 
             const durVal = Number(document.getElementById("tch-cfg-duration")?.value);
             const kkmVal = Number(document.getElementById("tch-cfg-kkm")?.value);
-            if (durVal >= 5 && durVal <= 240) subj.durationMinutes = durVal;
-            if (kkmVal >= 1 && kkmVal <= 100) subj.kkm = kkmVal;
 
-            subj.showScoreToStudent = Boolean(document.getElementById("tch-cfg-show-score").checked);
-            subj.showReviewToStudent = Boolean(document.getElementById("tch-cfg-show-review").checked);
+            subj.durationMinutes = durVal >= 1 ? Math.min(360, durVal) : 60;
+            subj.kkm = kkmVal >= 0 ? Math.min(100, kkmVal) : 75;
+            subj.showScoreToStudent = Boolean(document.getElementById("tch-cfg-show-score")?.checked);
+            subj.showReviewToStudent = Boolean(document.getElementById("tch-cfg-show-review")?.checked);
+
             saveAllDataToStorage();
             renderTeacherQuestionsList();
             renderManageExamView();
-            if (showNotify) {
-                showToast("Durasi ujian, KKM & tampilan hasil disimpan!", "success");
+            if (showNotification) {
+                showToast("Pengaturan durasi, KKM & tampilan hasil disimpan!", "success");
             }
         }
 
@@ -3977,16 +4236,7 @@
         }
 
         function deleteExamResult(resultId) {
-            const target = examResults.find((r) => r.id === resultId);
             examResults = examResults.filter((r) => r.id !== resultId);
-            attemptedRecords = attemptedRecords.filter((a) => {
-                if (a.resultId === resultId) return false;
-                if (target && a.subjectId === target.subjectId &&
-                    String(a.studentNisn || "").trim().toLowerCase() === String(target.studentNisn || "").trim().toLowerCase()) {
-                    return false;
-                }
-                return true;
-            });
             saveAllDataToStorage(false);
             if (window.cloudSync && window.cloudSync.ready) {
                 window.cloudSync.deleteResult(resultId);
@@ -4068,20 +4318,11 @@
                         : "py-3 px-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs sm:text-sm transition flex items-center justify-center gap-1.5";
                 }
             });
-
-            if (tabName === "student-codes") {
-                renderOperatorStudentCodeForms();
-                renderOperatorStudentCodes();
-            } else if (tabName === "schedule") {
-                renderOperatorScheduleView();
-            } else if (tabName === "teachers") {
-                renderOperatorTeachersView();
-            } else if (tabName === "menus") {
-                populateOperatorMenuConfigForm();
-            }
         }
 
         function refreshOperatorAllViews() {
+            updateOperatorBadges();
+            populateOperatorSubjectClassFilter();
             renderOperatorNewSubjectClassCheckboxes();
             renderOperatorSubjectsList();
             renderOperatorClassesList();
@@ -4090,27 +4331,35 @@
             renderOperatorScheduleView();
             renderOperatorTeachersView();
             populateOperatorMenuConfigForm();
-            updateOperatorBadges();
         }
 
         function updateOperatorBadges() {
-            const bSubj = document.getElementById("op-badge-subjects");
-            const bCls = document.getElementById("op-badge-classes");
-            const bCodes = document.getElementById("op-badge-student-codes");
-            const bSched = document.getElementById("op-badge-schedule");
-            const bTch = document.getElementById("op-badge-teachers");
-
-            const refDate = getActiveScheduleReferenceDate();
-            const todaySchedCount = subjects.filter((s) => s.scheduleDate === refDate).length;
-
-            if (bSubj) bSubj.textContent = String(subjects.length);
-            if (bCls) bCls.textContent = String(classesList.length);
-            if (bCodes) bCodes.textContent = String(studentCodes.length);
-            if (bSched) bSched.textContent = String(todaySchedCount);
-            if (bTch) bTch.textContent = String(teachersList.length);
+            document.getElementById("op-badge-subjects").textContent = subjects.length;
+            document.getElementById("op-badge-classes").textContent = classesList.length;
+            document.getElementById("op-badge-student-codes").textContent = studentCodes.length;
+            const today = getActiveScheduleReferenceDate();
+            const todayCount = subjects.filter((s) => s.scheduleDate === today).length;
+            document.getElementById("op-badge-schedule").textContent = todayCount;
+            document.getElementById("op-badge-teachers").textContent = teachersList.length;
         }
 
         // --- Tab 1: Mata Pelajaran ---
+        function populateOperatorSubjectClassFilter() {
+            const filterSel = document.getElementById("op-filter-subject-class");
+            if (!filterSel) return;
+            const currentVal = filterSel.value || "ALL";
+            filterSel.innerHTML = `<option value="ALL">Semua Kelas (${subjects.length})</option>` +
+                classesList.map((cls) => {
+                    const count = subjects.filter((s) =>
+                        !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(cls)
+                    ).length;
+                    return `<option value="${escapeHtml(cls)}">${escapeHtml(cls)} (${count})</option>`;
+                }).join("");
+            if (currentVal === "ALL" || classesList.includes(currentVal)) {
+                filterSel.value = currentVal;
+            }
+        }
+
         function renderOperatorNewSubjectClassCheckboxes() {
             const box = document.getElementById("op-new-subj-classes");
             if (!box) return;
@@ -4123,24 +4372,22 @@
         }
 
         function setAllOperatorNewClasses(checked) {
-            document.querySelectorAll(".op-new-cls-cb").forEach((cb) => {
-                cb.checked = checked;
-            });
+            document.querySelectorAll(".op-new-cls-cb").forEach((cb) => { cb.checked = checked; });
         }
 
-        function autoDetectClassesFromTitle(title, containerId) {
+        function autoDetectClassesFromTitle(titleVal, containerId) {
             const box = document.getElementById(containerId);
             if (!box) return;
-            const upper = String(title || "").toUpperCase();
-            let gradePrefix = "";
-            if (/\bXII\b/.test(upper)) gradePrefix = "XII";
-            else if (/\bXI\b/.test(upper)) gradePrefix = "XI";
-            else if (/\bX\b/.test(upper)) gradePrefix = "X";
+            const upper = String(titleVal || "").toUpperCase();
+            let prefix = null;
+            if (/\bXII\b/.test(upper)) prefix = "XII";
+            else if (/\bXI\b/.test(upper)) prefix = "XI";
+            else if (/\bX\b/.test(upper)) prefix = "X";
 
-            if (!gradePrefix) return;
+            if (!prefix) return;
             box.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-                const valUpper = cb.value.toUpperCase();
-                cb.checked = valUpper.startsWith(gradePrefix + " ") || valUpper === gradePrefix;
+                const clsUpper = cb.value.toUpperCase();
+                cb.checked = clsUpper.startsWith(prefix + " ") || clsUpper === prefix;
             });
         }
 
@@ -4171,24 +4418,77 @@
             showToast(`Mata pelajaran "${title}" ditambahkan!`, "success");
         }
 
+        function moveOperatorSubject(subjId, delta) {
+            const filterCls = document.getElementById("op-filter-subject-class")?.value || "ALL";
+            const visibleIndices = [];
+            subjects.forEach((s, idx) => {
+                const match = filterCls === "ALL" ||
+                    !Array.isArray(s.targetClasses) ||
+                    s.targetClasses.length === 0 ||
+                    s.targetClasses.includes(filterCls);
+                if (match) visibleIndices.push(idx);
+            });
+
+            const currentGlobalIdx = subjects.findIndex((s) => s.id === subjId);
+            const posInVisible = visibleIndices.indexOf(currentGlobalIdx);
+            if (posInVisible === -1) return;
+
+            const targetPosInVisible = posInVisible + delta;
+            if (targetPosInVisible < 0 || targetPosInVisible >= visibleIndices.length) return;
+
+            const targetGlobalIdx = visibleIndices[targetPosInVisible];
+            const tmp = subjects[currentGlobalIdx];
+            subjects[currentGlobalIdx] = subjects[targetGlobalIdx];
+            subjects[targetGlobalIdx] = tmp;
+
+            saveAllDataToStorage();
+            renderOperatorSubjectsList();
+        }
+
         function renderOperatorSubjectsList() {
             const listEl = document.getElementById("op-subjects-list");
+            const countPill = document.getElementById("op-subjects-count-pill");
+            const filterCls = document.getElementById("op-filter-subject-class")?.value || "ALL";
             if (!listEl) return;
-            if (subjects.length === 0) {
-                listEl.innerHTML = `<p class="text-sm text-slate-500">Belum ada mata pelajaran terdaftar.</p>`;
+
+            const filteredSubjects = subjects.filter((s) => {
+                if (filterCls === "ALL") return true;
+                return !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(filterCls);
+            });
+
+            if (countPill) {
+                countPill.textContent = `${filteredSubjects.length} Mapel`;
+            }
+
+            if (filteredSubjects.length === 0) {
+                listEl.innerHTML = `<p class="text-sm text-slate-500 py-3">Belum ada mata pelajaran untuk filter kelas ini.</p>`;
                 return;
             }
-            listEl.innerHTML = subjects.map((s) => {
+
+            listEl.innerHTML = filteredSubjects.map((s, idx) => {
                 const clsLabel = (!s.targetClasses || s.targetClasses.length === 0) ? "Semua Kelas" : s.targetClasses.join(", ");
                 return `
                     <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                            <div class="font-bold text-slate-900 text-sm">${escapeHtml(s.title)}</div>
-                            <div class="text-xs text-slate-500 mt-0.5">
-                                Soal: <strong>${s.questions.length}</strong> • Durasi: <strong>${s.durationMinutes} mnt</strong> • KKM: <strong>${s.kkm}</strong> • Kelas: <strong>${escapeHtml(clsLabel)}</strong>
+                        <div class="flex items-start sm:items-center gap-3 min-w-0">
+                            <span class="w-7 h-7 rounded-lg bg-white border border-slate-200 text-xs font-bold flex items-center justify-center text-slate-600 shrink-0">
+                                ${idx + 1}
+                            </span>
+                            <div class="min-w-0">
+                                <div class="font-bold text-slate-900 text-sm">${escapeHtml(s.title)}</div>
+                                <div class="text-xs text-slate-500 mt-0.5">
+                                    Soal Bank: <strong>${s.questions.length}</strong> • Aktif Ujian: <strong>${(s.activeQuestionIds || []).length}</strong> • Durasi: <strong>${s.durationMinutes} mnt</strong> • KKM: <strong>${s.kkm}</strong> • Kelas: <strong>${escapeHtml(clsLabel)}</strong>
+                                </div>
                             </div>
                         </div>
-                        <div class="flex items-center gap-2 shrink-0">
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button type="button" ${idx === 0 ? "disabled" : ""} onclick="moveOperatorSubject('${escapeHtml(s.id)}', -1)" title="Naikkan Urutan"
+                                class="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-35 text-xs font-bold text-slate-700">
+                                &uarr;
+                            </button>
+                            <button type="button" ${idx === filteredSubjects.length - 1 ? "disabled" : ""} onclick="moveOperatorSubject('${escapeHtml(s.id)}', 1)" title="Turunkan Urutan"
+                                class="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-35 text-xs font-bold text-slate-700">
+                                &darr;
+                            </button>
                             <button type="button" onclick="openEditSubjectOpModal('${escapeHtml(s.id)}')"
                                 class="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs">
                                 Edit
@@ -4754,7 +5054,7 @@
             showToast("Akun guru dihapus.", "info");
         }
 
-        // --- Tab 6: Organisir Menu, Logo, Background & Web ---
+        // --- Tab 6: Organisir Menu, Logo, Background & Identitas Web ---
         function populateOperatorMenuConfigForm() {
             document.getElementById("op-cfg-school-name").value = appConfig.schoolName || "SMA Miftahul Ulum";
             document.getElementById("op-cfg-school-subtitle").value = appConfig.schoolSubtitle || "";
