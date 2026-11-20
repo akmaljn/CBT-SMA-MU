@@ -371,9 +371,15 @@
                     Ujian ini memuat <strong>soal Essay / Uraian</strong> yang menunggu penilaian manual dari guru mata pelajaran. Nilai akhir akan diperbarui setelah guru memberikan skor essay.
                 </div>
 
-                <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 bg-slate-50 p-3.5 rounded-xl border border-slate-200 mb-6">
-                    <span>Waktu Selesai: <strong id="result-finished-at" class="text-slate-700">-</strong></span>
-                    <span>Catatan Pengawas: <strong id="result-tab-warnings" class="text-slate-700">0x pindah tab</strong></span>
+                <div class="text-xs text-slate-500 bg-slate-50 p-3.5 rounded-xl border border-slate-200 mb-6 space-y-2.5">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span>Waktu Selesai: <strong id="result-finished-at" class="text-slate-700">-</strong></span>
+                        <span>Catatan Pengawas: <strong id="result-tab-warnings" class="text-slate-700">Aman (0 Pelanggaran)</strong></span>
+                    </div>
+                    <div id="result-proctor-logs-box" class="hidden pt-2.5 border-t border-slate-200/80 space-y-1.5">
+                        <span class="block text-[11px] font-bold uppercase tracking-wider text-rose-700">Rincian Log Aktivitas Terdeteksi:</span>
+                        <div id="result-proctor-logs-list" class="space-y-1.5 max-h-44 overflow-y-auto pr-1"></div>
+                    </div>
                 </div>
 
                 <!-- Tombol Aksi Hasil -->
@@ -668,6 +674,11 @@
 
             <!-- TAB GURU 3: REKAP NILAI & KOREKSI ESSAY -->
             <div id="tch-panel-results" class="hidden space-y-6">
+                <!-- Info Hak Akses Mata Pelajaran Guru -->
+                <div id="teacher-results-scope-bar" class="bg-white rounded-2xl shadow-sm border border-slate-200 px-5 py-3.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span id="teacher-results-scope-text" class="text-slate-600 font-medium">Menampilkan rekap nilai mata pelajaran yang Anda ampu.</span>
+                </div>
+
                 <!-- Statistik Ringkas -->
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
@@ -716,6 +727,7 @@
                                     <th class="py-3 px-3">Mata Pelajaran</th>
                                     <th class="py-3 px-3 text-center">Nilai</th>
                                     <th class="py-3 px-3 text-center">Status</th>
+                                    <th class="py-3 px-3">Catatan Pengawas</th>
                                     <th class="py-3 px-3 text-right">Aksi</th>
                                 </tr>
                             </thead>
@@ -1456,6 +1468,7 @@
                 </div>
                 <button type="button" onclick="closeGradeEssayModal()" class="text-slate-400 hover:text-slate-700 font-bold text-xl">&times;</button>
             </div>
+            <div id="grade-essay-proctor-box" class="mt-3 p-3 rounded-xl border text-xs space-y-1"></div>
             <div id="grade-essay-items-list" class="flex-1 overflow-y-auto py-4 space-y-4"></div>
             <div class="pt-3 border-t border-slate-100 flex justify-end gap-2.5">
                 <button type="button" onclick="closeGradeEssayModal()"
@@ -1465,6 +1478,27 @@
                 <button type="button" onclick="saveEssayGrades()"
                     class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm">
                     Simpan Nilai Essay
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL DETAIL CATATAN PENGAWAS (GURU) ==================== -->
+    <div id="modal-proctor-detail" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl fade-in max-h-[90vh] flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">Rincian Catatan Pengawas Ujian</h3>
+                    <p id="proctor-detail-student-meta" class="text-xs text-slate-500">-</p>
+                </div>
+                <button type="button" onclick="closeProctorDetailModal()" class="text-slate-400 hover:text-slate-700 font-bold text-xl">&times;</button>
+            </div>
+            <div id="proctor-detail-summary-bar" class="mt-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"></div>
+            <div id="proctor-detail-logs-list" class="flex-1 overflow-y-auto py-4 space-y-2.5"></div>
+            <div class="pt-3 border-t border-slate-100 flex justify-end">
+                <button type="button" onclick="closeProctorDetailModal()"
+                    class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm">
+                    Tutup
                 </button>
             </div>
         </div>
@@ -2026,6 +2060,20 @@
         let hasUnsyncedDraftChanges = false;
         let lastFinishedResult = null;
 
+        // State Pengawasan Detail (Anti-Kecurangan & Deteksi Minta Gemini / Overlay)
+        let proctorState = {
+            blurClassifyTimer: null,
+            pendingBlurInfo: null,
+            activeAwayLog: null,
+            lastCopyTimestamp: 0,
+            lastCopiedText: "",
+            initialViewportW: 0,
+            initialViewportH: 0,
+            resizeDebounceTimer: null,
+            lastShortcutAt: 0,
+            domObserver: null
+        };
+
         // ==================== UTILITAS UMUM ====================
         function escapeHtml(str) {
             if (str === null || str === undefined) return "";
@@ -2370,6 +2418,9 @@
                 clearInterval(examPeriodicSyncInterval);
                 examPeriodicSyncInterval = null;
             }
+            if (screenName !== "exam") {
+                stopProctorMonitoring();
+            }
 
             if (screenName === "welcome") {
                 verifiedClassName = "";
@@ -2638,6 +2689,7 @@
                 currentIndex: examSession.currentIndex,
                 remainingSeconds: examSession.remainingSeconds,
                 tabWarnings: examSession.tabWarnings,
+                integrityLogs: examSession.integrityLogs || [],
                 status,
                 updatedAt: new Date().toISOString()
             };
@@ -2770,6 +2822,7 @@
                 doubts: new Array(localPackage.questions.length).fill(false),
                 remainingSeconds: localPackage.durationMinutes * 60,
                 tabWarnings: 0,
+                integrityLogs: [],
                 startedAt: new Date().toISOString()
             };
 
@@ -2778,13 +2831,8 @@
             document.getElementById("exam-subject-title").textContent = localPackage.subjectTitle;
             document.getElementById("exam-student-meta").textContent = `${studentName} (${studentNisn}) • Kelas ${studentClass}`;
 
-            const integrityBadge = document.getElementById("exam-integrity-badge");
-            if (integrityBadge) {
-                integrityBadge.textContent = appConfig.enableIntegrityMonitor ? "Pengawas Aktif" : "Mode Standar";
-                integrityBadge.className = appConfig.enableIntegrityMonitor
-                    ? "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    : "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200";
-            }
+            updateExamIntegrityBadge();
+            startProctorMonitoring();
 
             goToScreen("exam");
             renderCurrentQuestion();
@@ -3246,6 +3294,8 @@
         function finishExam() {
             closeSubmitConfirmModal();
             if (!examSession) return;
+            finalizeActiveAwayDuration();
+            stopProctorMonitoring();
             clearInterval(examTimerInterval);
             clearInterval(examPeriodicSyncInterval);
             examPeriodicSyncInterval = null;
@@ -3286,6 +3336,8 @@
 
             const score = total > 0 ? Math.round((objectivePoints / total) * 100) : 0;
             const finishedAt = new Date().toLocaleString("id-ID");
+            const integrityLogs = Array.isArray(examSession.integrityLogs) ? [...examSession.integrityLogs] : [];
+            const proctorSummary = buildProctorSummaryText(integrityLogs, examSession.tabWarnings);
 
             const resultObj = {
                 id: "res_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
@@ -3302,7 +3354,9 @@
                 totalQuestions: total,
                 hasEssay,
                 essayGraded: !hasEssay,
-                tabWarnings: examSession.tabWarnings,
+                tabWarnings: integrityLogs.length > 0 ? integrityLogs.length : examSession.tabWarnings,
+                integrityLogs,
+                proctorSummary,
                 finishedAt,
                 showScoreToStudent: examSession.showScoreToStudent,
                 showReviewToStudent: examSession.showReviewToStudent,
@@ -3387,7 +3441,38 @@
             document.getElementById("result-student-identity").textContent =
                 `${res.studentName} (${res.studentNisn}) • Kelas ${res.studentClass} • ${res.subjectTitle}`;
             document.getElementById("result-finished-at").textContent = res.finishedAt;
-            document.getElementById("result-tab-warnings").textContent = `${res.tabWarnings}x pindah tab`;
+
+            const logs = Array.isArray(res.integrityLogs) ? res.integrityLogs : [];
+            const summaryText = res.proctorSummary || buildProctorSummaryText(logs, res.tabWarnings || 0);
+            const warnEl = document.getElementById("result-tab-warnings");
+            if (warnEl) {
+                warnEl.textContent = summaryText;
+                warnEl.className = (logs.length > 0 || (res.tabWarnings || 0) > 0)
+                    ? "text-rose-700 font-extrabold"
+                    : "text-emerald-700 font-bold";
+            }
+
+            const logsBox = document.getElementById("result-proctor-logs-box");
+            const logsList = document.getElementById("result-proctor-logs-list");
+            if (logsBox && logsList) {
+                if (logs.length > 0) {
+                    logsBox.classList.remove("hidden");
+                    logsList.innerHTML = logs.map((lg, i) => `
+                        <div class="p-2.5 rounded-lg bg-white border border-rose-200/80 text-[11px] flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                            <div>
+                                <span class="font-bold text-rose-800">${i + 1}. ${escapeHtml(lg.title)}</span>
+                                <span class="text-slate-600 block sm:inline sm:ml-1.5">${escapeHtml(lg.detail)}</span>
+                            </div>
+                            <span class="font-mono text-[10px] text-slate-500 shrink-0">
+                                [${escapeHtml(lg.time)} • Soal ${lg.questionNo || "-"}${lg.durationSeconds ? ` • ${lg.durationSeconds} dtk` : ""}]
+                            </span>
+                        </div>
+                    `).join("");
+                } else {
+                    logsBox.classList.add("hidden");
+                    logsList.innerHTML = "";
+                }
+            }
 
             const showScore = res.showScoreToStudent !== false;
             const scoreGrid = document.getElementById("result-score-grid");
@@ -3461,12 +3546,276 @@
             box.classList.toggle("hidden");
         }
 
-        // Pengawas pindah tab / kehilangan fokus jendela
+        // ==================== MESIN PENGAWASAN DETAIL & DETEKSI MINTA GEMINI ====================
+        function getProctorCategoryBadgeInfo(category) {
+            switch (category) {
+                case "GEMINI_OVERLAY":
+                    return { short: "Indikasi Minta Gemini / Overlay", cls: "bg-purple-100 text-purple-800 border-purple-200" };
+                case "SPLIT_SCREEN_GEMINI":
+                    return { short: "Panel Samping / Split-Screen", cls: "bg-purple-100 text-purple-800 border-purple-200" };
+                case "DOM_AI_INJECTION":
+                    return { short: "Ekstensi / Overlay AI", cls: "bg-purple-100 text-purple-800 border-purple-200" };
+                case "TAB_SWITCH":
+                    return { short: "Pindah / Buka Tab Baru", cls: "bg-rose-100 text-rose-800 border-rose-200" };
+                case "COPY_TEXT":
+                    return { short: "Salin Teks Soal", cls: "bg-amber-100 text-amber-800 border-amber-200" };
+                case "PASTE_TEXT":
+                    return { short: "Tempel Teks", cls: "bg-amber-100 text-amber-800 border-amber-200" };
+                case "SHORTCUT_KEY":
+                    return { short: "Pintasan Sistem/AI", cls: "bg-orange-100 text-orange-800 border-orange-200" };
+                default:
+                    return { short: "Aktivitas Pengawasan", cls: "bg-slate-100 text-slate-700 border-slate-200" };
+            }
+        }
+
+        function buildProctorSummaryText(logs, fallbackCount = 0) {
+            const list = Array.isArray(logs) ? logs : [];
+            const count = list.length > 0 ? list.length : (Number(fallbackCount) || 0);
+            if (count === 0) return "Aman (0 Pelanggaran)";
+            if (list.length === 0) return `${count}x Peringatan Pindah Tab`;
+
+            const counts = {};
+            list.forEach((lg) => {
+                const label = getProctorCategoryBadgeInfo(lg.category).short;
+                counts[label] = (counts[label] || 0) + 1;
+            });
+            const parts = Object.entries(counts).map(([k, v]) => `${v}x ${k}`);
+            return `${count} Peringatan (${parts.join(", ")})`;
+        }
+
+        function updateExamIntegrityBadge() {
+            const integrityBadge = document.getElementById("exam-integrity-badge");
+            if (!integrityBadge) return;
+            if (!appConfig.enableIntegrityMonitor) {
+                integrityBadge.textContent = "Mode Standar";
+                integrityBadge.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200";
+                return;
+            }
+            const count = examSession ? (examSession.integrityLogs?.length || examSession.tabWarnings || 0) : 0;
+            if (count > 0) {
+                integrityBadge.textContent = `Pengawas Aktif • ${count} Peringatan`;
+                integrityBadge.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200";
+            } else {
+                integrityBadge.textContent = "Pengawas Aktif • Aman";
+                integrityBadge.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200";
+            }
+        }
+
+        function recordProctorEvent(category, title, detail, options = {}) {
+            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return null;
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            const qNo = options.questionNo || (examSession.currentIndex + 1);
+
+            const entry = {
+                id: "log_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+                time: timeStr,
+                startedAtMs: Date.now(),
+                questionNo: qNo,
+                category,
+                title,
+                detail,
+                durationSeconds: null
+            };
+
+            if (!Array.isArray(examSession.integrityLogs)) {
+                examSession.integrityLogs = [];
+            }
+            examSession.integrityLogs.push(entry);
+            examSession.tabWarnings = examSession.integrityLogs.length;
+
+            if (options.trackDuration) {
+                proctorState.activeAwayLog = entry;
+            }
+
+            updateExamIntegrityBadge();
+            saveExamDraftToLocalCache();
+            showToast(`Peringatan Pengawas (${examSession.tabWarnings}x): ${title}`, "error");
+            return entry;
+        }
+
+        function finalizeActiveAwayDuration() {
+            if (!proctorState.activeAwayLog) return;
+            const elapsedSec = Math.max(1, Math.round((Date.now() - proctorState.activeAwayLog.startedAtMs) / 1000));
+            proctorState.activeAwayLog.durationSeconds = elapsedSec;
+            proctorState.activeAwayLog.detail += ` (Durasi di luar layar ujian: ${elapsedSec} detik).`;
+            proctorState.activeAwayLog = null;
+            saveExamDraftToLocalCache();
+        }
+
+        function startProctorMonitoring() {
+            stopProctorMonitoring();
+            proctorState.initialViewportW = window.innerWidth || 0;
+            proctorState.initialViewportH = window.innerHeight || 0;
+
+            try {
+                proctorState.domObserver = new MutationObserver((mutations) => {
+                    if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
+                    for (const m of mutations) {
+                        for (const node of m.addedNodes) {
+                            if (node.nodeType !== 1) continue;
+                            const idCls = `${node.id || ""} ${typeof node.className === "string" ? node.className : ""} ${node.tagName || ""}`.toLowerCase();
+                            if (idCls.includes("toast-box") || idCls.includes("modal-")) continue;
+                            const aiKeywords = ["gemini", "copilot", "assistant", "chatgpt", "bard", "claude", "ai-overlay", "sidepanel"];
+                            const matchedKw = aiKeywords.find((kw) => idCls.includes(kw));
+                            if (matchedKw) {
+                                recordProctorEvent(
+                                    "DOM_AI_INJECTION",
+                                    "Ekstensi / Overlay AI Terdeteksi di Halaman",
+                                    `Terdeteksi komponen tambahan (${matchedKw}) muncul di halaman saat mengerjakan Soal No. ${examSession.currentIndex + 1}.`
+                                );
+                                return;
+                            }
+                        }
+                    }
+                });
+                proctorState.domObserver.observe(document.documentElement, { childList: true, subtree: false });
+            } catch (e) {}
+        }
+
+        function stopProctorMonitoring() {
+            clearTimeout(proctorState.blurClassifyTimer);
+            clearTimeout(proctorState.resizeDebounceTimer);
+            proctorState.blurClassifyTimer = null;
+            proctorState.pendingBlurInfo = null;
+            proctorState.activeAwayLog = null;
+            if (proctorState.domObserver) {
+                try { proctorState.domObserver.disconnect(); } catch (e) {}
+                proctorState.domObserver = null;
+            }
+        }
+
+        // 1. Deteksi Perpindahan Tab vs Overlay Minta Gemini (Tanpa Pindah Tab)
+        window.addEventListener("blur", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            if (proctorState.blurClassifyTimer) return;
+
+            const qNo = examSession.currentIndex + 1;
+            const hadRecentCopy = (Date.now() - proctorState.lastCopyTimestamp) < 10000;
+            const copiedSnippet = proctorState.lastCopiedText;
+
+            proctorState.pendingBlurInfo = { qNo, hadRecentCopy, copiedSnippet };
+            proctorState.blurClassifyTimer = setTimeout(() => {
+                proctorState.blurClassifyTimer = null;
+                if (!proctorState.pendingBlurInfo || currentScreen !== "exam" || !examSession) return;
+                const info = proctorState.pendingBlurInfo;
+                proctorState.pendingBlurInfo = null;
+
+                // Jika setelah 280ms document.hidden MASIH false, berarti siswa membuka overlay di atas layar ujian (seperti Minta Gemini / Assistant / Floating App)
+                if (!document.hidden) {
+                    const detailMsg = info.hadRecentCopy
+                        ? `Fokus layar berpindah ke overlay/asisten tanpa menutup tab ujian setelah menyalin teks ("${info.copiedSnippet}...") pada Soal No. ${info.qNo} (indikasi kuat penggunaan Minta Gemini / AI Assistant).`
+                        : `Layar ujian kehilangan fokus sementara tab ujian tetap terbuka pada Soal No. ${info.qNo} (indikasi mengaktifkan Minta Gemini, Google Assistant, atau jendela mengambang).`;
+                    recordProctorEvent(
+                        "GEMINI_OVERLAY",
+                        "Indikasi Minta Gemini / Overlay AI (Tanpa Pindah Tab)",
+                        detailMsg,
+                        { questionNo: info.qNo, trackDuration: true }
+                    );
+                }
+            }, 280);
+        });
+
         document.addEventListener("visibilitychange", () => {
-            if (document.hidden && currentScreen === "exam" && examSession && appConfig.enableIntegrityMonitor) {
-                examSession.tabWarnings += 1;
-                saveExamDraftToLocalCache();
-                showToast(`Peringatan Pengawas: Terdeteksi meninggalkan halaman ujian (${examSession.tabWarnings}x).`, "error");
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+
+            if (document.hidden) {
+                const info = proctorState.pendingBlurInfo || {
+                    qNo: examSession.currentIndex + 1,
+                    hadRecentCopy: (Date.now() - proctorState.lastCopyTimestamp) < 10000,
+                    copiedSnippet: proctorState.lastCopiedText
+                };
+                clearTimeout(proctorState.blurClassifyTimer);
+                proctorState.blurClassifyTimer = null;
+                proctorState.pendingBlurInfo = null;
+
+                const detailMsg = info.hadRecentCopy
+                    ? `Siswa menyalin teks ("${info.copiedSnippet}...") lalu berpindah tab / membuka tab baru pada Soal No. ${info.qNo}.`
+                    : `Siswa meninggalkan halaman ujian (berpindah tab, membuka tab baru, atau minimize browser) saat mengerjakan Soal No. ${info.qNo}.`;
+
+                recordProctorEvent(
+                    "TAB_SWITCH",
+                    "Pindah Tab / Membuka Tab Baru",
+                    detailMsg,
+                    { questionNo: info.qNo, trackDuration: true }
+                );
+            } else {
+                finalizeActiveAwayDuration();
+            }
+        });
+
+        window.addEventListener("focus", () => {
+            if (currentScreen === "exam" && examSession) {
+                finalizeActiveAwayDuration();
+            }
+        });
+
+        // 2. Deteksi Split-Screen atau Panel Samping Browser ("Ask Gemini" / Side Panel)
+        window.addEventListener("resize", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            clearTimeout(proctorState.resizeDebounceTimer);
+            proctorState.resizeDebounceTimer = setTimeout(() => {
+                if (!examSession || currentScreen !== "exam" || !proctorState.initialViewportW) return;
+                const newW = window.innerWidth || 0;
+                const ratioW = newW / proctorState.initialViewportW;
+                if (ratioW > 0 && ratioW <= 0.72) {
+                    recordProctorEvent(
+                        "SPLIT_SCREEN_GEMINI",
+                        "Indikasi Panel Samping / Split-Screen (Minta Gemini / Side Panel)",
+                        `Lebar tampilan ujian menyusut dari ${proctorState.initialViewportW}px menjadi ${newW}px pada Soal No. ${examSession.currentIndex + 1} (indikasi membuka side panel Ask Gemini atau split-screen).`
+                    );
+                    proctorState.initialViewportW = newW;
+                } else if (newW > proctorState.initialViewportW) {
+                    proctorState.initialViewportW = newW;
+                }
+            }, 600);
+        });
+
+        // 3. Deteksi Salin (Copy) & Tempel (Paste) Teks Soal
+        document.addEventListener("copy", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            const selected = (window.getSelection ? window.getSelection().toString() : "").trim();
+            const snippet = selected.replace(/\s+/g, " ").slice(0, 55);
+            proctorState.lastCopyTimestamp = Date.now();
+            proctorState.lastCopiedText = snippet;
+
+            recordProctorEvent(
+                "COPY_TEXT",
+                "Menyalin Teks Soal",
+                `Siswa menyalin teks pada Soal No. ${examSession.currentIndex + 1}${snippet ? ` ("${snippet}...")` : ""}.`
+            );
+        });
+
+        document.addEventListener("paste", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            recordProctorEvent(
+                "PASTE_TEXT",
+                "Menempelkan Teks (Paste)",
+                `Siswa menempelkan teks dari clipboard pada Soal No. ${examSession.currentIndex + 1}.`
+            );
+        });
+
+        // 4. Deteksi Pintasan Sistem / AI / Screenshot
+        document.addEventListener("keydown", (e) => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            const now = Date.now();
+            if (now - proctorState.lastShortcutAt < 2500) return;
+
+            let combo = "";
+            if (e.key === "PrintScreen") combo = "PrintScreen";
+            else if (e.altKey && e.key === "Tab") combo = "Alt + Tab";
+            else if (e.metaKey) combo = "Tombol Windows / Command / AI";
+            else if ((e.ctrlKey || e.metaKey) && e.shiftKey && ["I", "J", "C", "S"].includes(e.key.toUpperCase())) {
+                combo = `Ctrl+Shift+${e.key.toUpperCase()}`;
+            }
+
+            if (combo) {
+                proctorState.lastShortcutAt = now;
+                recordProctorEvent(
+                    "SHORTCUT_KEY",
+                    `Pintasan Sistem / AI Terdeteksi (${combo})`,
+                    `Menekan pintasan ${combo} saat mengerjakan Soal No. ${examSession.currentIndex + 1}.`
+                );
             }
         });
 
@@ -3541,6 +3890,23 @@
             return subjects.filter((s) => loggedInTeacher.subjectIds.includes(s.id));
         }
 
+        function getTeacherPermittedResults() {
+            if (!loggedInTeacher) return [];
+            const hasRestrictedSubjects = Array.isArray(loggedInTeacher.subjectIds) && loggedInTeacher.subjectIds.length > 0;
+            if (!hasRestrictedSubjects) {
+                return examResults;
+            }
+            const allowedIds = new Set(loggedInTeacher.subjectIds);
+            return examResults.filter((r) => allowedIds.has(r.subjectId));
+        }
+
+        function isResultPermittedForTeacher(resultObj) {
+            if (!resultObj || !loggedInTeacher) return false;
+            const hasRestrictedSubjects = Array.isArray(loggedInTeacher.subjectIds) && loggedInTeacher.subjectIds.length > 0;
+            if (!hasRestrictedSubjects) return true;
+            return loggedInTeacher.subjectIds.includes(resultObj.subjectId);
+        }
+
         function refreshTeacherPortalViews() {
             const classSel = document.getElementById("teacher-class-select");
             const manageClassSel = document.getElementById("manage-class-select");
@@ -3550,19 +3916,36 @@
 
             onTeacherClassChange();
             renderTeacherTypeFields();
+            populateResultFilterDropdowns();
             updateTeacherResultsBadge();
         }
 
-        function onTeacherClassChange() {
-            const cls = document.getElementById("teacher-class-select").value;
-            const permitted = getTeacherPermittedSubjects().filter((s) =>
-                !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(cls)
+        function getPermittedSubjectsForClass(className) {
+            const permitted = getTeacherPermittedSubjects();
+            if (!className) return permitted;
+            return permitted.filter(
+                (s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(className)
             );
+        }
+
+        function onTeacherClassChange() {
+            const classSel = document.getElementById("teacher-class-select");
             const subjSel = document.getElementById("teacher-subject-select");
-            if (permitted.length === 0) {
-                subjSel.innerHTML = `<option value="">-- Tidak ada mata pelajaran untuk kelas ini --</option>`;
+            if (!classSel || !subjSel) return;
+
+            const selectedClass = classSel.value;
+            const filteredSubj = getPermittedSubjectsForClass(selectedClass);
+            const prevSubj = subjSel.value;
+
+            if (filteredSubj.length === 0) {
+                subjSel.innerHTML = `<option value="">-- Tidak ada mapel diampu untuk kelas ini --</option>`;
             } else {
-                subjSel.innerHTML = permitted.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`).join("");
+                subjSel.innerHTML = filteredSubj
+                    .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`)
+                    .join("");
+                if (prevSubj && filteredSubj.some((s) => s.id === prevSubj)) {
+                    subjSel.value = prevSubj;
+                }
             }
             onTeacherSubjectChange();
         }
@@ -3575,38 +3958,54 @@
         }
 
         function syncManageDropdownsFromBank() {
-            const bankCls = document.getElementById("teacher-class-select").value;
-            const bankSubj = document.getElementById("teacher-subject-select").value;
-            const mCls = document.getElementById("manage-class-select");
-            if (mCls && bankCls) mCls.value = bankCls;
-            onManageClassChange(bankSubj);
-        }
+            const bankClass = document.getElementById("teacher-class-select")?.value;
+            const bankSubj = document.getElementById("teacher-subject-select")?.value;
+            const manageClassSel = document.getElementById("manage-class-select");
+            const manageSubjSel = document.getElementById("manage-subject-select");
 
-        function onManageClassChange(preferredSubjId = null) {
-            const cls = document.getElementById("manage-class-select").value;
-            const permitted = getTeacherPermittedSubjects().filter((s) =>
-                !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(cls)
-            );
-            const mSubj = document.getElementById("manage-subject-select");
-            if (permitted.length === 0) {
-                mSubj.innerHTML = `<option value="">-- Tidak ada mata pelajaran untuk kelas ini --</option>`;
-            } else {
-                mSubj.innerHTML = permitted.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`).join("");
-                if (preferredSubjId && permitted.some((s) => s.id === preferredSubjId)) {
-                    mSubj.value = preferredSubjId;
+            if (manageClassSel && bankClass) {
+                manageClassSel.value = bankClass;
+            }
+            if (manageClassSel && manageSubjSel) {
+                const filteredSubj = getPermittedSubjectsForClass(manageClassSel.value);
+                if (filteredSubj.length === 0) {
+                    manageSubjSel.innerHTML = `<option value="">-- Tidak ada mapel diampu untuk kelas ini --</option>`;
+                } else {
+                    manageSubjSel.innerHTML = filteredSubj
+                        .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`)
+                        .join("");
+                    if (bankSubj && filteredSubj.some((s) => s.id === bankSubj)) {
+                        manageSubjSel.value = bankSubj;
+                    }
                 }
             }
-            renderManageExamView();
+        }
+
+        function onManageClassChange() {
+            const manageClassSel = document.getElementById("manage-class-select");
+            const manageSubjSel = document.getElementById("manage-subject-select");
+            const bankClassSel = document.getElementById("teacher-class-select");
+            if (!manageClassSel || !manageSubjSel) return;
+
+            if (bankClassSel) bankClassSel.value = manageClassSel.value;
+            const filteredSubj = getPermittedSubjectsForClass(manageClassSel.value);
+            if (filteredSubj.length === 0) {
+                manageSubjSel.innerHTML = `<option value="">-- Tidak ada mapel diampu untuk kelas ini --</option>`;
+            } else {
+                manageSubjSel.innerHTML = filteredSubj
+                    .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`)
+                    .join("");
+            }
+            onManageSubjectChange();
         }
 
         function onManageSubjectChange() {
-            const mCls = document.getElementById("manage-class-select").value;
-            const mSubj = document.getElementById("manage-subject-select").value;
-            const bCls = document.getElementById("teacher-class-select");
-            const bSubj = document.getElementById("teacher-subject-select");
-            if (bCls) bCls.value = mCls;
-            if (bSubj && mSubj) bSubj.value = mSubj;
-            renderTeacherQuestionsList();
+            const manageSubjVal = document.getElementById("manage-subject-select")?.value;
+            const bankSubjSel = document.getElementById("teacher-subject-select");
+            if (bankSubjSel && manageSubjVal) {
+                bankSubjSel.value = manageSubjVal;
+                renderTeacherQuestionsList();
+            }
             renderManageExamView();
         }
 
@@ -3616,103 +4015,19 @@
             const btnSingle = document.getElementById("btn-mode-single");
             const btnBulk = document.getElementById("btn-mode-bulk");
 
-            if (mode === "bulk") {
-                singleForm.classList.add("hidden");
-                bulkForm.classList.remove("hidden");
-                btnBulk.className = "px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs sm:text-sm transition";
-                btnSingle.className = "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition";
-            } else {
-                bulkForm.classList.add("hidden");
-                singleForm.classList.remove("hidden");
-                btnSingle.className = "px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs sm:text-sm transition";
-                btnBulk.className = "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition";
+            const isSingle = mode === "single";
+            if (singleForm) singleForm.classList.toggle("hidden", !isSingle);
+            if (bulkForm) bulkForm.classList.toggle("hidden", isSingle);
+
+            if (btnSingle) {
+                btnSingle.className = isSingle
+                    ? "px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs sm:text-sm transition"
+                    : "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition";
             }
-        }
-
-        function renderTeacherTypeFields(existingQ = null) {
-            const type = document.getElementById("q-form-type").value;
-            const container = document.getElementById("q-form-dynamic-fields");
-            const letters = ["A", "B", "C", "D", "E"];
-
-            if (type === "single") {
-                const opts = existingQ?.options || ["", "", "", "", ""];
-                const correctIdx = existingQ?.correctIndex ?? 0;
-                container.innerHTML = `
-                    <p class="text-xs font-bold text-slate-600">Pilihan Jawaban & Kunci Benar (Pilih 1):</p>
-                    <div class="space-y-2">
-                        ${letters.map((ltr, i) => `
-                            <div class="flex items-center gap-2.5">
-                                <input type="radio" name="q-single-correct" value="${i}" ${Number(correctIdx) === i ? "checked" : ""} class="w-4 h-4 text-indigo-600">
-                                <span class="font-bold text-xs w-6 text-slate-600">${ltr}.</span>
-                                <input type="text" id="q-opt-${i}" value="${escapeHtml(opts[i] || "")}" placeholder="Teks pilihan ${ltr}..."
-                                    class="flex-1 px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                            </div>
-                        `).join("")}
-                    </div>
-                `;
-            } else if (type === "complex") {
-                const opts = existingQ?.options || ["", "", "", "", ""];
-                const correctArr = Array.isArray(existingQ?.correctIndices) ? existingQ.correctIndices : [0];
-                container.innerHTML = `
-                    <p class="text-xs font-bold text-slate-600">Pilihan Jawaban & Kunci Benar (Centang semua yang benar):</p>
-                    <div class="space-y-2">
-                        ${letters.map((ltr, i) => `
-                            <div class="flex items-center gap-2.5">
-                                <input type="checkbox" id="q-complex-correct-${i}" ${correctArr.includes(i) ? "checked" : ""} class="w-4 h-4 rounded text-indigo-600">
-                                <span class="font-bold text-xs w-6 text-slate-600">${ltr}.</span>
-                                <input type="text" id="q-opt-${i}" value="${escapeHtml(opts[i] || "")}" placeholder="Teks pilihan ${ltr}..."
-                                    class="flex-1 px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                            </div>
-                        `).join("")}
-                    </div>
-                `;
-            } else if (type === "truefalse") {
-                const isTrue = existingQ ? Boolean(existingQ.correctAnswer) : true;
-                container.innerHTML = `
-                    <p class="text-xs font-bold text-slate-600">Pilih Kunci Jawaban Benar atau Salah untuk Pernyataan di Atas:</p>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                        <label class="flex items-center gap-3 p-3.5 rounded-xl border border-emerald-200 bg-white hover:bg-emerald-50/50 cursor-pointer transition">
-                            <input type="radio" name="q-tf-correct" value="true" ${isTrue ? "checked" : ""} class="w-4 h-4 text-emerald-600">
-                            <span class="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-extrabold text-xs">BENAR</span>
-                            <span class="text-xs text-slate-600">Pernyataan bernilai benar</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-3.5 rounded-xl border border-rose-200 bg-white hover:bg-rose-50/50 cursor-pointer transition">
-                            <input type="radio" name="q-tf-correct" value="false" ${!isTrue ? "checked" : ""} class="w-4 h-4 text-rose-600">
-                            <span class="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 font-extrabold text-xs">SALAH</span>
-                            <span class="text-xs text-slate-600">Pernyataan bernilai salah</span>
-                        </label>
-                    </div>
-                `;
-            } else if (type === "short") {
-                const ansStr = Array.isArray(existingQ?.acceptedAnswers) ? existingQ.acceptedAnswers.join(", ") : "";
-                container.innerHTML = `
-                    <label class="block text-xs font-bold text-slate-600">Kunci Jawaban Singkat (Pisahkan dengan koma jika ada beberapa variasi benar):</label>
-                    <input type="text" id="q-short-answers" value="${escapeHtml(ansStr)}" required placeholder="Contoh: Soekarno, Ir. Soekarno"
-                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                `;
-            } else if (type === "matching") {
-                const pairs = existingQ?.pairs || [
-                    { left: "", right: "" },
-                    { left: "", right: "" },
-                    { left: "", right: "" }
-                ];
-                container.innerHTML = `
-                    <p class="text-xs font-bold text-slate-600">Pasangan Pernyataan Kiri & Jawaban Kanan:</p>
-                    <div class="space-y-2">
-                        ${[0, 1, 2, 3].map((i) => `
-                            <div class="grid grid-cols-2 gap-2">
-                                <input type="text" id="q-match-left-${i}" value="${escapeHtml(pairs[i]?.left || "")}" placeholder="Pernyataan ${i + 1}..."
-                                    class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                                <input type="text" id="q-match-right-${i}" value="${escapeHtml(pairs[i]?.right || "")}" placeholder="Pasangan ${i + 1}..."
-                                    class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                            </div>
-                        `).join("")}
-                    </div>
-                `;
-            } else if (type === "essay") {
-                container.innerHTML = `
-                    <p class="text-xs text-slate-600">Soal tipe <strong>Essay / Jawaban Panjang</strong> akan dikoreksi dan diberi skor secara manual oleh guru pada tab <strong>3. Rekap Nilai & Koreksi Essay</strong>.</p>
-                `;
+            if (btnBulk) {
+                btnBulk.className = !isSingle
+                    ? "px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs sm:text-sm transition"
+                    : "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition";
             }
         }
 
@@ -3724,8 +4039,10 @@
                 const img = new Image();
                 img.onload = () => {
                     const canvas = document.createElement("canvas");
-                    const maxW = 800;
-                    const scale = img.width > maxW ? maxW / img.width : 1;
+                    const maxDim = 960;
+                    const scale = Math.max(img.width, img.height) > maxDim
+                        ? maxDim / Math.max(img.width, img.height)
+                        : 1;
                     canvas.width = img.width * scale;
                     canvas.height = img.height * scale;
                     const ctx = canvas.getContext("2d");
@@ -3739,9 +4056,11 @@
         }
 
         function updateQuestionImagePreview() {
-            const url = (document.getElementById("q-form-image-url").value || "").trim();
+            const url = (document.getElementById("q-form-image-url")?.value || "").trim();
             const box = document.getElementById("q-form-image-preview-box");
             const img = document.getElementById("q-form-image-preview");
+            if (!box || !img) return;
+
             if (url) {
                 img.src = url;
                 box.classList.remove("hidden");
@@ -3752,15 +4071,111 @@
         }
 
         function clearQuestionImageInput() {
-            document.getElementById("q-form-image-url").value = "";
-            const fileEl = document.getElementById("q-form-image-file");
-            if (fileEl) fileEl.value = "";
+            const fileInp = document.getElementById("q-form-image-file");
+            const urlInp = document.getElementById("q-form-image-url");
+            if (fileInp) fileInp.value = "";
+            if (urlInp) urlInp.value = "";
             updateQuestionImagePreview();
+        }
+
+        function renderTeacherTypeFields(existingQuestion = null) {
+            const type = document.getElementById("q-form-type")?.value || "single";
+            const container = document.getElementById("q-form-dynamic-fields");
+            const expLabel = document.getElementById("q-form-explanation-label");
+            if (!container) return;
+
+            if (expLabel) {
+                expLabel.textContent = type === "essay"
+                    ? "Pedoman Penskoran / Kunci Jawaban Essay (Opsional)"
+                    : "Pembahasan / Kunci Pedoman (Opsional)";
+            }
+
+            const letters = ["A", "B", "C", "D", "E"];
+            if (type === "single") {
+                const opts = existingQuestion?.options || ["", "", "", "", ""];
+                const correctIdx = typeof existingQuestion?.correctIndex === "number" ? existingQuestion.correctIndex : 0;
+                container.innerHTML = `
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Pilihan Jawaban (Pilih 1 Kunci Jawaban Benar)</p>
+                    <div class="space-y-2.5">
+                        ${letters.map((ltr, i) => `
+                            <div class="flex items-center gap-2.5">
+                                <input type="radio" name="q-single-correct" value="${i}" ${correctIdx === i ? "checked" : ""}
+                                    class="w-4 h-4 text-indigo-600 cursor-pointer" title="Tandai ${ltr} sebagai jawaban benar">
+                                <span class="w-7 h-7 rounded-lg bg-white border border-slate-300 flex items-center justify-center font-bold text-xs text-slate-700 shrink-0">${ltr}</span>
+                                <input type="text" id="q-opt-${i}" value="${escapeHtml(opts[i] || "")}" placeholder="Teks pilihan ${ltr}${i >= 4 ? " (opsional)" : ""}"
+                                    class="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+            } else if (type === "complex") {
+                const opts = existingQuestion?.options || ["", "", "", "", ""];
+                const correctSet = new Set(existingQuestion?.correctIndices || []);
+                container.innerHTML = `
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Pilihan Jawaban Kompleks (Centang Semua Jawaban yang Benar)</p>
+                    <div class="space-y-2.5">
+                        ${letters.map((ltr, i) => `
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="q-complex-correct-${i}" ${correctSet.has(i) ? "checked" : ""}
+                                    class="w-4 h-4 rounded text-indigo-600 cursor-pointer" title="Tandai ${ltr} sebagai jawaban benar">
+                                <span class="w-7 h-7 rounded-lg bg-white border border-slate-300 flex items-center justify-center font-bold text-xs text-slate-700 shrink-0">${ltr}</span>
+                                <input type="text" id="q-opt-${i}" value="${escapeHtml(opts[i] || "")}" placeholder="Teks pilihan ${ltr}${i >= 4 ? " (opsional)" : ""}"
+                                    class="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+            } else if (type === "truefalse") {
+                const isTrue = existingQuestion ? existingQuestion.correctAnswer !== false : true;
+                container.innerHTML = `
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Kunci Jawaban Pernyataan</p>
+                    <div class="flex flex-wrap gap-4">
+                        <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-white cursor-pointer text-sm font-bold text-emerald-700">
+                            <input type="radio" name="q-tf-correct" value="true" ${isTrue ? "checked" : ""} class="text-emerald-600">
+                            <span>Benar</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-white cursor-pointer text-sm font-bold text-rose-700">
+                            <input type="radio" name="q-tf-correct" value="false" ${!isTrue ? "checked" : ""} class="text-rose-600">
+                            <span>Salah</span>
+                        </label>
+                    </div>
+                `;
+            } else if (type === "short") {
+                const ansText = Array.isArray(existingQuestion?.acceptedAnswers) ? existingQuestion.acceptedAnswers.join(", ") : "";
+                container.innerHTML = `
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-600">Kunci Jawaban Singkat (Pisahkan dengan koma jika ada variasi jawaban)</label>
+                        <input type="text" id="q-short-answers" value="${escapeHtml(ansText)}" placeholder="Contoh: Soekarno, Ir. Soekarno"
+                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold outline-none focus:border-indigo-500">
+                    </div>
+                `;
+            } else if (type === "matching") {
+                const pairs = existingQuestion?.pairs || [{ left: "", right: "" }, { left: "", right: "" }, { left: "", right: "" }, { left: "", right: "" }];
+                container.innerHTML = `
+                    <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Pasangan Premis (Kiri) & Jawaban Cocok (Kanan)</p>
+                    <div class="space-y-2">
+                        ${[0, 1, 2, 3].map((i) => `
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <input type="text" id="q-match-left-${i}" value="${escapeHtml(pairs[i]?.left || "")}" placeholder="Premis Kiri ${i + 1}${i >= 2 ? " (opsional)" : ""}"
+                                    class="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                                <input type="text" id="q-match-right-${i}" value="${escapeHtml(pairs[i]?.right || "")}" placeholder="Pasangan Kanan ${i + 1}${i >= 2 ? " (opsional)" : ""}"
+                                    class="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+            } else if (type === "essay") {
+                container.innerHTML = `
+                    <p class="text-xs text-slate-600">
+                        Soal bertipe <strong>Essay / Jawaban Panjang</strong> akan menampilkan kotak uraian bebas kepada siswa dan dinilai secara manual oleh guru pada menu <strong>Rekap Nilai & Koreksi Essay</strong>.
+                    </p>
+                `;
+            }
         }
 
         function saveTeacherQuestion(event) {
             event.preventDefault();
-            const subjId = document.getElementById("teacher-subject-select").value;
+            const subjId = document.getElementById("teacher-subject-select")?.value;
             const subj = subjects.find((s) => s.id === subjId);
             if (!subj) {
                 showToast("Pilih mata pelajaran terlebih dahulu.", "error");
@@ -4213,31 +4628,76 @@
         // ==================== TAB GURU 3: REKAP NILAI & KOREKSI ESSAY ====================
         function updateTeacherResultsBadge() {
             const badge = document.getElementById("tch-badge-results");
-            if (badge) badge.textContent = String(examResults.length);
+            if (!badge) return;
+            const count = loggedInTeacher ? getTeacherPermittedResults().length : examResults.length;
+            badge.textContent = String(count);
         }
 
         function populateResultFilterDropdowns() {
             const clsSel = document.getElementById("res-filter-class");
             const subjSel = document.getElementById("res-filter-subject");
+            const scopeText = document.getElementById("teacher-results-scope-text");
+            const permittedSubjects = getTeacherPermittedSubjects();
+
+            if (scopeText) {
+                if (!loggedInTeacher || !Array.isArray(loggedInTeacher.subjectIds) || loggedInTeacher.subjectIds.length === 0) {
+                    scopeText.innerHTML = `Hak Akses Rekap Nilai: <strong class="text-slate-900">Semua Mata Pelajaran</strong>`;
+                } else if (permittedSubjects.length === 0) {
+                    scopeText.innerHTML = `<span class="text-rose-600 font-bold">Anda belum memiliki mata pelajaran aktif yang diampu. Hubungi Operator.</span>`;
+                } else {
+                    const names = permittedSubjects.map((s) => escapeHtml(s.title)).join(", ");
+                    scopeText.innerHTML = `Mata Pelajaran Diampu: <strong class="text-indigo-700">${names}</strong>`;
+                }
+            }
+
             if (clsSel) {
                 const cur = clsSel.value || "ALL";
+                const allowsAllClasses = permittedSubjects.some(
+                    (s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0
+                );
+                let allowedClasses = classesList;
+                if (!allowsAllClasses) {
+                    const targetSet = new Set();
+                    permittedSubjects.forEach((s) => {
+                        (s.targetClasses || []).forEach((c) => targetSet.add(c));
+                    });
+                    getTeacherPermittedResults().forEach((r) => {
+                        if (r.studentClass) targetSet.add(r.studentClass);
+                    });
+                    allowedClasses = classesList.filter((c) => targetSet.has(c));
+                }
+
                 clsSel.innerHTML = `<option value="ALL">Semua Kelas</option>` +
-                    classesList.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-                clsSel.value = cur;
+                    allowedClasses.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+                const validClsValues = new Set(["ALL", ...allowedClasses]);
+                clsSel.value = validClsValues.has(cur) ? cur : "ALL";
             }
+
             if (subjSel) {
                 const cur = subjSel.value || "ALL";
-                subjSel.innerHTML = `<option value="ALL">Semua Mata Pelajaran</option>` +
-                    subjects.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`).join("");
-                subjSel.value = cur;
+                if (permittedSubjects.length === 0) {
+                    subjSel.innerHTML = `<option value="NONE">-- Tidak ada mata pelajaran diampu --</option>`;
+                    subjSel.value = "NONE";
+                } else if (permittedSubjects.length === 1) {
+                    const onlySubj = permittedSubjects[0];
+                    subjSel.innerHTML = `<option value="${escapeHtml(onlySubj.id)}">${escapeHtml(onlySubj.title)}</option>`;
+                    subjSel.value = onlySubj.id;
+                } else {
+                    subjSel.innerHTML = `<option value="ALL">Semua Mapel Diampu (${permittedSubjects.length})</option>` +
+                        permittedSubjects.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`).join("");
+                    const validSubjValues = new Set(["ALL", ...permittedSubjects.map((s) => s.id)]);
+                    subjSel.value = validSubjValues.has(cur) ? cur : "ALL";
+                }
             }
         }
 
         function renderTeacherResultsTable() {
             const clsFilter = document.getElementById("res-filter-class")?.value || "ALL";
             const subjFilter = document.getElementById("res-filter-subject")?.value || "ALL";
+            const permittedResults = getTeacherPermittedResults();
 
-            const filtered = examResults.filter((r) => {
+            const filtered = permittedResults.filter((r) => {
+                if (subjFilter === "NONE") return false;
                 if (clsFilter !== "ALL" && r.studentClass !== clsFilter) return false;
                 if (subjFilter !== "ALL" && r.subjectId !== subjFilter) return false;
                 return true;
@@ -4257,7 +4717,10 @@
             if (!tbody) return;
 
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400">Belum ada data hasil ujian peserta.</td></tr>`;
+                const emptyMessage = getTeacherPermittedSubjects().length === 0
+                    ? "Anda belum memiliki mata pelajaran yang diampu. Hubungi Operator untuk pengaturan hak akses."
+                    : "Belum ada data hasil ujian peserta untuk mata pelajaran yang Anda ampu.";
+                tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">${emptyMessage}</td></tr>`;
                 return;
             }
 
@@ -4269,6 +4732,36 @@
                     : passed
                         ? `<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">Lulus KKM</span>`
                         : `<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700">Remedial</span>`;
+
+                const logs = Array.isArray(r.integrityLogs) ? r.integrityLogs : [];
+                const warnCount = logs.length > 0 ? logs.length : (Number(r.tabWarnings) || 0);
+                let proctorCellHtml = "";
+                if (warnCount === 0) {
+                    proctorCellHtml = `
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Aman (0)
+                        </span>
+                    `;
+                } else {
+                    const uniqueTags = Array.from(new Set(logs.map((lg) => getProctorCategoryBadgeInfo(lg.category).short))).slice(0, 2);
+                    const tagSummary = uniqueTags.length > 0 ? uniqueTags.join(" • ") : `${warnCount}x Pindah Tab`;
+                    proctorCellHtml = `
+                        <div class="space-y-1">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
+                                    ${warnCount}x Peringatan
+                                </span>
+                                ${logs.length > 0 ? `
+                                    <button type="button" onclick="openProctorDetailModal('${escapeHtml(r.id)}')"
+                                        class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 font-bold text-[10px] border border-slate-300 transition">
+                                        Detail Log
+                                    </button>
+                                ` : ""}
+                            </div>
+                            <p class="text-[11px] text-slate-600 line-clamp-2 max-w-52">${escapeHtml(tagSummary)}</p>
+                        </div>
+                    `;
+                }
 
                 return `
                     <tr class="hover:bg-slate-50/80 transition">
@@ -4283,6 +4776,7 @@
                             <span class="block text-[10px] text-slate-400">KKM ${r.kkm}</span>
                         </td>
                         <td class="py-3 px-3 text-center">${statusBadge}</td>
+                        <td class="py-3 px-3">${proctorCellHtml}</td>
                         <td class="py-3 px-3 text-right">
                             <div class="inline-flex items-center gap-1.5">
                                 ${r.hasEssay ? `
@@ -4302,14 +4796,100 @@
             }).join("");
         }
 
+        function openProctorDetailModal(resultId) {
+            const res = examResults.find((r) => String(r.id) === String(resultId));
+            if (!res) return;
+            if (!isResultPermittedForTeacher(res)) {
+                showToast("Anda tidak memiliki hak akses untuk melihat log mata pelajaran ini.", "error");
+                return;
+            }
+
+            const metaEl = document.getElementById("proctor-detail-student-meta");
+            const summaryBar = document.getElementById("proctor-detail-summary-bar");
+            const listEl = document.getElementById("proctor-detail-logs-list");
+            const logs = Array.isArray(res.integrityLogs) ? res.integrityLogs : [];
+            const summaryText = res.proctorSummary || buildProctorSummaryText(logs, res.tabWarnings || 0);
+
+            if (metaEl) {
+                metaEl.textContent = `${res.studentName} (${res.studentNisn}) • Kelas ${res.studentClass} • ${res.subjectTitle}`;
+            }
+            if (summaryBar) {
+                summaryBar.innerHTML = `
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span>Ringkasan Pengawas: <strong class="${logs.length > 0 ? "text-rose-700" : "text-emerald-700"}">${escapeHtml(summaryText)}</strong></span>
+                        <span class="text-slate-500">Selesai: <strong>${escapeHtml(res.finishedAt || "-")}</strong></span>
+                    </div>
+                `;
+            }
+            if (listEl) {
+                if (logs.length === 0) {
+                    listEl.innerHTML = `<p class="text-sm text-slate-500 py-4 text-center">Tidak ada catatan pelanggaran pengawasan pada sesi ujian ini.</p>`;
+                } else {
+                    listEl.innerHTML = logs.map((lg, idx) => {
+                        const badge = getProctorCategoryBadgeInfo(lg.category);
+                        return `
+                            <div class="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="w-6 h-6 rounded-lg bg-slate-900 text-white font-bold text-xs flex items-center justify-center">${idx + 1}</span>
+                                        <span class="px-2 py-0.5 rounded-md border text-[11px] font-bold ${badge.cls}">${escapeHtml(badge.short)}</span>
+                                        <span class="font-bold text-xs sm:text-sm text-slate-900">${escapeHtml(lg.title)}</span>
+                                    </div>
+                                    <span class="font-mono text-[11px] text-slate-500">
+                                        Pukul ${escapeHtml(lg.time)} • Soal No. ${lg.questionNo || "-"}${lg.durationSeconds ? ` • ${lg.durationSeconds} dtk` : ""}
+                                    </span>
+                                </div>
+                                <p class="text-xs text-slate-700 pl-8">${escapeHtml(lg.detail)}</p>
+                            </div>
+                        `;
+                    }).join("");
+                }
+            }
+
+            const modal = document.getElementById("modal-proctor-detail");
+            if (modal) {
+                modal.classList.remove("hidden");
+                modal.classList.add("flex");
+            }
+        }
+
+        function closeProctorDetailModal() {
+            const modal = document.getElementById("modal-proctor-detail");
+            if (modal) {
+                modal.classList.add("hidden");
+                modal.classList.remove("flex");
+            }
+        }
+
         function openGradeEssayModal(resultId) {
             const res = examResults.find((r) => String(r.id) === String(resultId));
             if (!res) return;
+            if (!isResultPermittedForTeacher(res)) {
+                showToast("Anda tidak memiliki hak akses untuk mengoreksi mata pelajaran ini.", "error");
+                return;
+            }
             gradingResultId = res.id;
 
             const metaEl = document.getElementById("grade-essay-student-meta");
             if (metaEl) {
                 metaEl.textContent = `${res.studentName} (${res.studentNisn}) • Kelas ${res.studentClass} • ${res.subjectTitle}`;
+            }
+
+            const proctorBox = document.getElementById("grade-essay-proctor-box");
+            if (proctorBox) {
+                const logs = Array.isArray(res.integrityLogs) ? res.integrityLogs : [];
+                const warnCount = logs.length > 0 ? logs.length : (Number(res.tabWarnings) || 0);
+                const summaryText = res.proctorSummary || buildProctorSummaryText(logs, warnCount);
+                if (warnCount > 0) {
+                    proctorBox.className = "mt-3 p-3 rounded-xl border border-rose-200 bg-rose-50/80 text-xs text-rose-900 flex flex-wrap items-center justify-between gap-2";
+                    proctorBox.innerHTML = `
+                        <span><strong>Catatan Pengawas:</strong> ${escapeHtml(summaryText)}</span>
+                        ${logs.length > 0 ? `<button type="button" onclick="openProctorDetailModal('${escapeHtml(res.id)}')" class="px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-rose-800 font-bold text-[11px] hover:bg-rose-100">Lihat Rincian Log</button>` : ""}
+                    `;
+                } else {
+                    proctorBox.className = "mt-3 p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 text-xs text-emerald-900";
+                    proctorBox.innerHTML = `<span><strong>Catatan Pengawas:</strong> Aman (0 Pelanggaran selama ujian berlangsung)</span>`;
+                }
             }
 
             const listEl = document.getElementById("grade-essay-items-list");
@@ -4365,22 +4945,26 @@
         function saveEssayGrades() {
             const res = examResults.find((r) => String(r.id) === String(gradingResultId));
             if (!res) return;
+            if (!isResultPermittedForTeacher(res)) {
+                showToast("Anda tidak memiliki hak akses untuk menyimpan nilai mata pelajaran ini.", "error");
+                return;
+            }
 
             let totalPoints = 0;
             const details = res.details || [];
             details.forEach((item, idx) => {
                 if (item.isObjective) {
-                    if (item.isCorrect) totalPoints += 1;
+                    totalPoints += item.isCorrect ? 1 : 0;
                 } else {
                     const inp = document.getElementById(`essay-score-input-${idx}`);
-                    const rawScore = inp ? Math.max(0, Math.min(100, Number(inp.value) || 0)) : (Number(item.essayScore) || 0);
-                    item.essayScore = rawScore;
-                    totalPoints += rawScore / 100;
+                    const rawScore = inp ? Number(inp.value) : Number(item.essayScore || 0);
+                    const clampedScore = Math.max(0, Math.min(100, isNaN(rawScore) ? 0 : rawScore));
+                    item.essayScore = clampedScore;
+                    totalPoints += clampedScore / 100;
                 }
             });
 
-            const totalQ = Number(res.totalQuestions) || details.length || 1;
-            res.score = Math.round((totalPoints / totalQ) * 100);
+            res.score = details.length > 0 ? Math.round((totalPoints / details.length) * 100) : 0;
             res.essayGraded = true;
 
             saveAllDataToStorage(false);
@@ -4390,10 +4974,16 @@
 
             closeGradeEssayModal();
             renderTeacherResultsTable();
-            showToast(`Nilai essay disimpan! Nilai akhir diperbarui menjadi ${res.score}.`, "success");
+            showToast(`Nilai essay berhasil disimpan! Nilai akhir peserta: ${res.score}`, "success");
         }
 
         function deleteExamResult(resultId) {
+            const target = examResults.find((r) => String(r.id) === String(resultId));
+            if (!target) return;
+            if (!isResultPermittedForTeacher(target)) {
+                showToast("Anda tidak memiliki hak akses untuk menghapus hasil mata pelajaran ini.", "error");
+                return;
+            }
             examResults = examResults.filter((r) => String(r.id) !== String(resultId));
             saveAllDataToStorage(false);
             if (window.cloudSync && window.cloudSync.ready) {
@@ -4407,8 +4997,10 @@
         function getFilteredResultsForExport() {
             const clsFilter = document.getElementById("res-filter-class")?.value || "ALL";
             const subjFilter = document.getElementById("res-filter-subject")?.value || "ALL";
+            const permittedResults = getTeacherPermittedResults();
 
-            const filtered = examResults.filter((r) => {
+            const filtered = permittedResults.filter((r) => {
+                if (subjFilter === "NONE") return false;
                 if (clsFilter !== "ALL" && r.studentClass !== clsFilter) return false;
                 if (subjFilter !== "ALL" && r.subjectId !== subjFilter) return false;
                 return true;
@@ -4418,8 +5010,9 @@
         }
 
         function exportResultsToXlsx() {
-            if (examResults.length === 0) {
-                showToast("Belum ada data hasil untuk diunduh.", "error");
+            const permittedResults = getTeacherPermittedResults();
+            if (permittedResults.length === 0) {
+                showToast("Belum ada data hasil ujian pada mata pelajaran yang Anda ampu.", "error");
                 return;
             }
 
@@ -4441,12 +5034,14 @@
             const buildSheetRows = (titleHeader, rowsData) => [
                 [`REKAP NILAI UJIAN CBT - ${schoolTitle}`],
                 [titleHeader],
-                ["No", "Nama Peserta", "NISN", "Kelas", "Mata Pelajaran", "Benar", "Salah", "Nilai Akhir", "KKM", "Status", "Waktu Selesai"],
+                ["No", "Nama Peserta", "NISN", "Kelas", "Mata Pelajaran", "Benar", "Salah", "Nilai Akhir", "KKM", "Status", "Catatan Pengawas", "Waktu Selesai"],
                 ...rowsData.map((r, idx) => {
                     const passed = Number(r.score) >= Number(r.kkm || 75);
                     const statusText = (r.hasEssay && !r.essayGraded)
                         ? "Menunggu Koreksi Essay"
                         : (passed ? "Lulus KKM" : "Remedial");
+                    const logs = Array.isArray(r.integrityLogs) ? r.integrityLogs : [];
+                    const proctorNote = r.proctorSummary || buildProctorSummaryText(logs, r.tabWarnings || 0);
                     return [
                         idx + 1,
                         r.studentName || "-",
@@ -4458,6 +5053,7 @@
                         Number(r.score) || 0,
                         Number(r.kkm) || 75,
                         statusText,
+                        proctorNote,
                         r.finishedAt || "-"
                     ];
                 })
@@ -4466,10 +5062,10 @@
             const colWidths = [
                 { wch: 5 }, { wch: 24 }, { wch: 16 }, { wch: 14 },
                 { wch: 24 }, { wch: 8 }, { wch: 8 }, { wch: 12 },
-                { wch: 8 }, { wch: 22 }, { wch: 22 }
+                { wch: 8 }, { wch: 22 }, { wch: 36 }, { wch: 22 }
             ];
 
-            const mainSubtitle = `Filter Kelas: ${clsFilter === "ALL" ? "Semua Kelas" : clsFilter} | Mapel: ${subjFilter === "ALL" ? "Semua Mapel" : (subjects.find((s) => s.id === subjFilter)?.title || subjFilter)}`;
+            const mainSubtitle = `Guru: ${loggedInTeacher?.name || "-"} | Filter Kelas: ${clsFilter === "ALL" ? "Semua Kelas" : clsFilter} | Mapel: ${subjFilter === "ALL" ? "Semua Mapel Diampu" : (subjects.find((s) => s.id === subjFilter)?.title || subjFilter)}`;
             const mainWs = XLSX.utils.aoa_to_sheet(buildSheetRows(mainSubtitle, filtered));
             mainWs["!cols"] = colWidths;
             XLSX.utils.book_append_sheet(wb, mainWs, sanitizeExcelSheetName("Rekap Utama", usedSheetNames));
