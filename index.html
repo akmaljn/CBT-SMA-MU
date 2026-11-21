@@ -1724,13 +1724,13 @@
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const defaultFirebaseConfig = {
-            apiKey: "",
-            authDomain: "",
-            projectId: "",
-            storageBucket: "",
-            messagingSenderId: "",
-            appId: ""
-        };
+            apiKey: "ISI_API_KEY_ANDA",
+            authDomain: "ISI_PROJECT_ID.firebaseapp.com",
+            projectId: "ISI_PROJECT_ID",
+            storageBucket: "ISI_PROJECT_ID.firebasestorage.app",
+            messagingSenderId: "ISI_SENDER_ID",
+            appId: "ISI_APP_ID"
+            };
 
         const firebaseConfig = (typeof __firebase_config !== "undefined" && __firebase_config)
             ? (typeof __firebase_config === "string" ? JSON.parse(__firebase_config) : __firebase_config)
@@ -1815,8 +1815,12 @@
                     }
                 };
 
-                const initialSnap = await getDoc(configDocRef);
-                if (initialSnap.exists() && typeof window.applyCloudData === "function") {
+                onSnapshot(configDocRef, (snap) => {
+                  if (snap.exists() && typeof window.applyCloudData === "function") {
+                    window.applyCloudData(snap.data());
+                    }, (err) => {
+    console.warn("Listener real-time konfigurasi:", err);
+}); && typeof window.applyCloudData === "function") {
                     window.applyCloudData(initialSnap.data());
                 }
 
@@ -1849,7 +1853,7 @@
         // =========================================================================
         // 1. KONFIGURASI DEFAULT & DATA BAWAAN
         // =========================================================================
-        const STORAGE_KEY = "cbt_sma_miftahul_ulum_v4";
+        const STORAGE_KEY = "cbt_sma_miftahul_ulum_v5";
         const SEEN_RESULTS_KEY = "cbt_sma_seen_results_v1";
         const EXAM_CACHE_PREFIX = "cbt_sma_active_session_v1_";
         const ACTIVE_EXAM_POINTER_KEY = "cbt_sma_active_pointer_v1";
