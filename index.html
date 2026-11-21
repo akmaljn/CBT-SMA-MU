@@ -1272,180 +1272,44 @@
 
                     <div class="border-t border-slate-100 pt-5 space-y-4">
                         <div>
-                            <h3 class="font-bold text-slate-900 text-base">Logo Sekolah & Background Halaman Depan</h3>
-                            <p class="text-xs text-slate-500">Sisipkan logo resmi sekolah (tampil di header & halaman depan) serta atur latar belakang halaman login peserta ujian.</p>
+                            <h3 class="font-bold text-slate-900 text-base">Keamanan Akses Operator, Siswa & Guru</h3>
+                            <p class="text-xs text-slate-500">Atur PIN masuk Administrator serta pintasan pengelolaan kode akses peserta dan pendidik.</p>
                         </div>
 
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            <div class="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
-                                <div class="flex items-center justify-between gap-2">
-                                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-600">Logo Sekolah</label>
-                                    <button type="button" onclick="clearOperatorSchoolLogo()" class="text-xs font-semibold text-rose-600 hover:underline">
-                                        Hapus Logo
-                                    </button>
-                                </div>
-
-                                <div class="flex items-center gap-3.5">
-                                    <div id="op-logo-preview-box" class="w-16 h-16 rounded-2xl bg-white border border-slate-300 flex items-center justify-center shrink-0 overflow-hidden p-1.5 shadow-sm">
-                                        <span class="text-[11px] text-slate-400 text-center leading-tight">Default</span>
-                                    </div>
-                                    <div class="flex-1 space-y-2">
-                                        <label class="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs cursor-pointer transition shadow-sm">
-                                            <span>Unggah File Logo</span>
-                                            <input type="file" id="op-cfg-logo-file" accept="image/*" onchange="handleOperatorImageUpload(event, 'logo')" class="hidden">
-                                        </label>
-                                        <p class="text-[11px] text-slate-500">Format PNG transparan atau JPG/WebP (otomatis dikompres).</p>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label class="block text-[11px] font-semibold text-slate-500 mb-1">Atau Tempel Tautan (URL) Gambar Logo</label>
-                                    <input type="text" id="op-cfg-school-logo" oninput="updateOperatorBrandingPreview()" placeholder="https://contoh.sch.id/logo-sekolah.png"
-                                        class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none focus:border-indigo-500">
-                                </div>
-                            </div>
-
-                            <div class="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
-                                <div class="flex items-center justify-between gap-2">
-                                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-600">Background Halaman Depan</label>
-                                    <button type="button" onclick="clearOperatorLoginBg()" class="text-xs font-semibold text-rose-600 hover:underline">
-                                        Reset Polos
-                                    </button>
-                                </div>
-
-                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                                    <button type="button" data-bg-preset="none" onclick="selectOperatorBgPreset('none')"
-                                        class="op-bg-preset-btn px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 transition">
-                                        Polos
-                                    </button>
-                                    <button type="button" data-bg-preset="blue" onclick="selectOperatorBgPreset('blue')"
-                                        class="op-bg-preset-btn px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-blue-700 transition">
-                                        Biru
-                                    </button>
-                                    <button type="button" data-bg-preset="emerald" onclick="selectOperatorBgPreset('emerald')"
-                                        class="op-bg-preset-btn px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-emerald-700 transition">
-                                        Zamrud
-                                    </button>
-                                    <button type="button" data-bg-preset="amber" onclick="selectOperatorBgPreset('amber')"
-                                        class="op-bg-preset-btn px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-amber-700 transition">
-                                        Senja
-                                    </button>
-                                </div>
-                                <input type="hidden" id="op-cfg-bg-preset" value="none">
-
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <label class="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs cursor-pointer transition shadow-sm">
-                                        <span>Unggah Foto / Background</span>
-                                        <input type="file" id="op-cfg-bg-file" accept="image/*" onchange="handleOperatorImageUpload(event, 'bg')" class="hidden">
-                                    </label>
-                                    <span class="text-[11px] text-slate-500">Foto gedung sekolah / banner ujian</span>
-                                </div>
-
-                                <div>
-                                    <label class="block text-[11px] font-semibold text-slate-500 mb-1">Atau Tempel Tautan (URL) Gambar Background</label>
-                                    <input type="text" id="op-cfg-login-bg" oninput="onOperatorBgUrlInput()" placeholder="https://contoh.sch.id/gedung-sekolah.jpg"
-                                        class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none focus:border-indigo-500">
-                                </div>
-
-                                <div>
-                                    <div class="flex items-center justify-between text-[11px] font-semibold text-slate-600 mb-1">
-                                        <span>Tingkat Kegelapan / Kecerahan Overlay</span>
-                                        <span id="op-cfg-bg-overlay-label" class="font-mono font-bold text-indigo-700">Netral (0%)</span>
-                                    </div>
-                                    <input type="range" id="op-cfg-bg-overlay" min="-80" max="80" step="5" value="0" oninput="updateOperatorBrandingPreview()"
-                                        class="w-full accent-indigo-600 cursor-pointer">
-                                    <div class="flex items-center justify-between text-[10px] text-slate-500 mt-0.5 select-none">
-                                        <span>&larr; Makin Gelap</span>
-                                        <button type="button" onclick="resetOperatorBgOverlay()" class="font-semibold text-indigo-600 hover:underline">Netral (0%)</button>
-                                        <span>Makin Terang &rarr;</span>
-                                    </div>
-                                </div>
+                        <div class="max-w-sm">
+                            <label for="op-cfg-operator-pin" class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">PIN Login Operator / Admin</label>
+                            <div class="relative">
+                                <input type="password" id="op-cfg-operator-pin" maxlength="12" required
+                                    class="w-full pl-3.5 pr-11 py-2.5 rounded-xl border border-slate-300 font-mono font-bold text-sm outline-none focus:border-indigo-500">
+                                <button type="button" id="btn-toggle-op-pin" onclick="toggleOperatorPinVisibility()"
+                                    title="Lihat / Sembunyikan PIN"
+                                    class="absolute inset-y-0 right-0 px-3 flex items-center justify-center text-slate-400 hover:text-slate-700 transition">
+                                    <svg id="icon-op-pin-eye" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                    <svg id="icon-op-pin-eye-off" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                    </svg>
+                                </button>
                             </div>
                         </div>
 
-                        <div class="space-y-1.5">
-                            <span class="block text-xs font-bold uppercase tracking-wider text-slate-500">Pratinjau Halaman Depan</span>
-                            <div id="op-frontpage-mini-preview" class="relative rounded-2xl border border-slate-200 bg-slate-100 bg-cover bg-center p-6 flex items-center justify-center overflow-hidden min-h-[150px]">
-                                <div id="op-frontpage-mini-overlay" class="absolute inset-0 transition-colors duration-200"></div>
-                                <div class="relative z-10 bg-white/95 backdrop-blur-sm rounded-2xl border border-slate-200/80 shadow-sm px-5 py-4 max-w-xs w-full text-center space-y-2">
-                                    <div id="op-mini-logo-slot" class="w-10 h-10 mx-auto rounded-lg bg-indigo-600 text-white flex items-center justify-center overflow-hidden text-xs font-bold">
-                                        CBT
-                                    </div>
-                                    <p id="op-mini-school-name" class="text-[11px] font-extrabold uppercase tracking-wider text-indigo-600 truncate">SMA Miftahul Ulum</p>
-                                    <p id="op-mini-login-title" class="text-xs font-bold text-slate-900 line-clamp-1">Selamat Datang di Aplikasi Ujian Semester</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="border-t border-slate-100 pt-5 space-y-3">
-                        <h3 class="font-bold text-slate-900 text-base">Organisir Menu & Fitur Ujian</h3>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 cursor-pointer">
-                                <input type="checkbox" id="op-menu-teacher-portal" class="mt-0.5 rounded text-indigo-600">
-                                <div>
-                                    <span class="block text-sm font-bold text-slate-800">Tampilkan Menu Portal Guru</span>
-                                    <span class="block text-xs text-slate-500">Tampilkan tombol masuk guru di pojok bawah halaman depan.</span>
-                                </div>
-                            </label>
-                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 cursor-pointer">
-                                <input type="checkbox" id="op-menu-integrity" class="mt-0.5 rounded text-indigo-600">
-                                <div>
-                                    <span class="block text-sm font-bold text-slate-800">Pengawas Anti-Kecurangan</span>
-                                    <span class="block text-xs text-slate-500">Deteksi pindah tab, kehilangan fokus layar, serta blokir salin soal saat ujian.</span>
-                                </div>
-                            </label>
-                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 cursor-pointer">
-                                <input type="checkbox" id="op-menu-print" class="mt-0.5 rounded text-indigo-600">
-                                <div>
-                                    <span class="block text-sm font-bold text-slate-800">Tombol Cetak Bukti Hasil</span>
-                                    <span class="block text-xs text-slate-500">Izinkan siswa mencetak bukti setelah menyelesaikan ujian.</span>
-                                </div>
-                            </label>
-                            <div class="flex items-start gap-3 p-3.5 rounded-xl border border-indigo-100 bg-indigo-50/60">
-                                <div class="text-xs text-indigo-900">
-                                    <span class="block text-sm font-bold text-indigo-950">Durasi, KKM & Tampilan Hasil</span>
-                                    <span class="block mt-0.5">Diatur mandiri oleh masing-masing guru pada <strong>Portal Guru &rarr; Kelola Soal</strong>.</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="border-t border-slate-100 pt-5 space-y-3">
-                        <h3 class="font-bold text-slate-900 text-base">Keamanan Akses Operator, Siswa & Guru</h3>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                            <div>
-                                <label for="op-cfg-operator-pin" class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">PIN Login Operator / Admin</label>
-                                <div class="relative">
-                                    <input type="password" id="op-cfg-operator-pin" maxlength="12" required
-                                        class="w-full pl-3.5 pr-11 py-2.5 rounded-xl border border-slate-300 font-mono font-bold text-sm outline-none focus:border-indigo-500">
-                                    <button type="button" id="btn-toggle-op-pin" onclick="toggleOperatorPinVisibility()"
-                                        title="Lihat / Sembunyikan PIN"
-                                        class="absolute inset-y-0 right-0 px-3 flex items-center justify-center text-slate-400 hover:text-slate-700 transition">
-                                        <svg id="icon-op-pin-eye" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                        </svg>
-                                        <svg id="icon-op-pin-eye-off" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between gap-3">
+                            <div class="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between gap-3">
                                 <span class="text-xs text-emerald-900">Kode akses siswa per kelas diatur pada tab <strong>Kode Siswa</strong>.</span>
                                 <button type="button" onclick="switchOperatorTab('student-codes')"
                                     class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shrink-0 transition">
                                     Atur Kode Siswa
                                 </button>
                             </div>
-                        </div>
-                        <div class="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between gap-3">
-                            <span class="text-xs text-indigo-900">Kode akses individual guru dikelola pada tab <strong>Kode Guru</strong>.</span>
-                            <button type="button" onclick="switchOperatorTab('teachers')"
-                                class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shrink-0 transition">
-                                Kelola Guru
-                            </button>
+                            <div class="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between gap-3">
+                                <span class="text-xs text-indigo-900">Kode akses individual guru dikelola pada tab <strong>Kode Guru</strong>.</span>
+                                <button type="button" onclick="switchOperatorTab('teachers')"
+                                    class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shrink-0 transition">
+                                    Kelola Guru
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -1456,6 +1320,56 @@
                         </button>
                     </div>
                 </form>
+
+                <!-- Panel Cadangan Data & Pemeliharaan Sistem (Operator) -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-base">Cadangan Data (Backup / Restore) & Pemeliharaan Sistem</h3>
+                        <p class="text-xs text-slate-500">Ekspor atau pulihkan seluruh database sekolah (identitas web, kelas, kode akses, jadwal, bank soal seluruh mapel, dan rekap nilai).</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between gap-3">
+                            <div>
+                                <span class="block text-sm font-bold text-slate-800">Backup Lengkap Database (.json)</span>
+                                <span class="block text-xs text-slate-500 mt-0.5">Unduh seluruh data pengaturan dan bank soal ke perangkat sebagai arsip cadangan.</span>
+                            </div>
+                            <div>
+                                <button type="button" onclick="exportFullSystemBackup()"
+                                    class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition">
+                                    Unduh Backup Lengkap (.json)
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between gap-3">
+                            <div>
+                                <span class="block text-sm font-bold text-slate-800">Pulihkan Data dari Backup (.json)</span>
+                                <span class="block text-xs text-slate-500 mt-0.5">Muat file arsip cadangan sistem untuk menyalin data ujian ke perangkat ini.</span>
+                            </div>
+                            <div>
+                                <label class="inline-flex items-center px-4 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs cursor-pointer transition">
+                                    <span>Pilih File Backup (.json)</span>
+                                    <input type="file" accept=".json" onchange="importFullSystemBackup(event)" class="hidden">
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                        <span class="text-xs text-slate-500">Pemeliharaan data sebelum pelaksanaan ujian resmi:</span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" onclick="clearAllExamResultsOperator()"
+                                class="px-3.5 py-2 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold text-xs transition">
+                                Hapus Semua Riwayat Nilai
+                            </button>
+                            <button type="button" onclick="resetSystemToFactoryDefault()"
+                                class="px-3.5 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs transition">
+                                Reset Pengaturan Awal
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
     </main>
@@ -5592,6 +5506,108 @@
             saveAppState(true);
             applyWebBranding();
             showToast("Pengaturan identitas, menu, dan tampilan web berhasil diterapkan!", "success");
+        }
+
+        // ==================== CADANGAN DATA & PEMELIHARAAN SISTEM ====================
+        function exportFullSystemBackup() {
+            try {
+                const payload = {
+                    appSignature: "CBT_SMA_MIFTAHUL_ULUM",
+                    exportedAt: new Date().toISOString(),
+                    data: appState
+                };
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `Backup_Lengkap_CBT_${getTodayIsoDate()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast("File backup lengkap sistem berhasil diunduh.", "success");
+            } catch (err) {
+                showToast("Gagal membuat file backup sistem.", "error");
+            }
+        }
+
+        function importFullSystemBackup(e) {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const parsed = JSON.parse(ev.target.result);
+                    const incoming = parsed && parsed.data ? parsed.data : parsed;
+                    if (!incoming || !incoming.config || !Array.isArray(incoming.subjects)) {
+                        showToast("Format file backup sistem tidak valid.", "error");
+                        e.target.value = "";
+                        return;
+                    }
+                    openGenericConfirmModal(
+                        "Pulihkan Data dari Backup?",
+                        "Seluruh pengaturan, kode akses, bank soal, dan rekap nilai saat ini akan digantikan dengan isi file backup. Lanjutkan?",
+                        () => {
+                            const def = buildDefaultState();
+                            appState = {
+                                config: { ...def.config, ...(incoming.config || {}) },
+                                classes: Array.isArray(incoming.classes) && incoming.classes.length ? incoming.classes : def.classes,
+                                studentCodes: Array.isArray(incoming.studentCodes) ? incoming.studentCodes : [],
+                                teachers: Array.isArray(incoming.teachers) && incoming.teachers.length ? incoming.teachers : def.teachers,
+                                subjects: Array.isArray(incoming.subjects) ? incoming.subjects : [],
+                                results: Array.isArray(incoming.results) ? incoming.results : []
+                            };
+                            saveAppState(true);
+                            applyWebBranding();
+                            initOperatorPortal();
+                            switchOperatorTab("menus");
+                            showToast("Database sistem berhasil dipulihkan dari file backup!", "success");
+                        },
+                        "Ya, Pulihkan Data"
+                    );
+                } catch (err) {
+                    showToast("File JSON rusak atau tidak dapat dibaca.", "error");
+                }
+                e.target.value = "";
+            };
+            reader.readAsText(file);
+        }
+
+        function clearAllExamResultsOperator() {
+            const count = (appState.results || []).length;
+            if (count === 0) {
+                showToast("Saat ini tidak ada data riwayat nilai yang tersimpan.", "info");
+                return;
+            }
+            openGenericConfirmModal(
+                "Hapus Semua Riwayat Nilai?",
+                `Sebanyak ${count} data nilai peserta ujian akan dihapus permanen. Bank soal dan pengaturan sekolah tetap aman.`,
+                () => {
+                    const oldIds = (appState.results || []).map(r => r.id);
+                    appState.results = [];
+                    saveAppState(false);
+                    if (window.cloudSync && window.cloudSync.enabled) {
+                        oldIds.forEach(id => window.cloudSync.deleteResult(id));
+                    }
+                    showToast("Seluruh riwayat nilai peserta berhasil dibersihkan.", "success");
+                },
+                "Ya, Hapus Semua Nilai"
+            );
+        }
+
+        function resetSystemToFactoryDefault() {
+            openGenericConfirmModal(
+                "Reset ke Pengaturan Awal?",
+                "Seluruh perubahan mata pelajaran, soal, kode siswa, kode guru, dan nilai akan dihapus dan dikembalikan ke data contoh bawaan. Lanjutkan?",
+                () => {
+                    appState = buildDefaultState();
+                    clearSavedExamSession();
+                    saveAppState(true);
+                    applyWebBranding();
+                    initOperatorPortal();
+                    switchOperatorTab("menus");
+                    showToast("Aplikasi berhasil dikembalikan ke pengaturan awal.", "info");
+                },
+                "Ya, Reset Sistem"
+            );
         }
 
         // ==================== INISIALISASI SAAT HALAMAN DIMUAT ====================
