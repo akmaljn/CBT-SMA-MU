@@ -5345,20 +5345,29 @@
         // --- Tab Operator 6: Menu & Web ---
         function initOperatorMenusTab() {
             const cfg = appState.config;
-            document.getElementById("op-cfg-school-name").value = cfg.schoolName || "";
-            document.getElementById("op-cfg-school-subtitle").value = cfg.schoolSubtitle || "";
-            document.getElementById("op-cfg-semester-badge").value = cfg.semesterBadge || "";
-            document.getElementById("op-cfg-login-title").value = cfg.loginTitle || "";
-            document.getElementById("op-cfg-login-subtitle").value = cfg.loginSubtitle || "";
-            document.getElementById("op-cfg-school-logo").value = cfg.schoolLogoUrl || "";
-            document.getElementById("op-cfg-login-bg").value = cfg.loginBgUrl || "";
-            document.getElementById("op-cfg-bg-preset").value = cfg.loginBgPreset || "none";
-            document.getElementById("op-cfg-bg-overlay").value = cfg.loginBgOverlay || 0;
+            const setVal = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.value = val;
+            };
+            const setChecked = (id, checked) => {
+                const el = document.getElementById(id);
+                if (el) el.checked = checked;
+            };
 
-            document.getElementById("op-menu-teacher-portal").checked = cfg.showTeacherPortal !== false;
-            document.getElementById("op-menu-integrity").checked = cfg.enableIntegrityMonitor !== false;
-            document.getElementById("op-menu-print").checked = cfg.enablePrintResult !== false;
-            document.getElementById("op-cfg-operator-pin").value = cfg.operatorPin || "9999";
+            setVal("op-cfg-school-name", cfg.schoolName || "");
+            setVal("op-cfg-school-subtitle", cfg.schoolSubtitle || "");
+            setVal("op-cfg-semester-badge", cfg.semesterBadge || "");
+            setVal("op-cfg-login-title", cfg.loginTitle || "");
+            setVal("op-cfg-login-subtitle", cfg.loginSubtitle || "");
+            setVal("op-cfg-school-logo", cfg.schoolLogoUrl || "");
+            setVal("op-cfg-login-bg", cfg.loginBgUrl || "");
+            setVal("op-cfg-bg-preset", cfg.loginBgPreset || "none");
+            setVal("op-cfg-bg-overlay", cfg.loginBgOverlay || 0);
+
+            setChecked("op-menu-teacher-portal", cfg.showTeacherPortal !== false);
+            setChecked("op-menu-integrity", cfg.enableIntegrityMonitor !== false);
+            setChecked("op-menu-print", cfg.enablePrintResult !== false);
+            setVal("op-cfg-operator-pin", cfg.operatorPin || "9999");
 
             selectOperatorBgPreset(cfg.loginBgPreset || "none", false);
             updateOperatorBrandingPreview();
@@ -5382,10 +5391,13 @@
                 const maxW = targetType === "logo" ? 320 : 1280;
                 const compressed = await compressImageFile(file, maxW, 0.8);
                 if (targetType === "logo") {
-                    document.getElementById("op-cfg-school-logo").value = compressed;
+                    const logoEl = document.getElementById("op-cfg-school-logo");
+                    if (logoEl) logoEl.value = compressed;
                 } else {
-                    document.getElementById("op-cfg-login-bg").value = compressed;
-                    document.getElementById("op-cfg-bg-preset").value = "none";
+                    const bgEl = document.getElementById("op-cfg-login-bg");
+                    const presetEl = document.getElementById("op-cfg-bg-preset");
+                    if (bgEl) bgEl.value = compressed;
+                    if (presetEl) presetEl.value = "none";
                 }
                 updateOperatorBrandingPreview();
                 showToast("Gambar berhasil diproses.", "success");
@@ -5395,21 +5407,27 @@
         }
 
         function clearOperatorSchoolLogo() {
-            document.getElementById("op-cfg-school-logo").value = "";
-            document.getElementById("op-cfg-logo-file").value = "";
+            const logoEl = document.getElementById("op-cfg-school-logo");
+            const fileEl = document.getElementById("op-cfg-logo-file");
+            if (logoEl) logoEl.value = "";
+            if (fileEl) fileEl.value = "";
             updateOperatorBrandingPreview();
         }
 
         function clearOperatorLoginBg() {
-            document.getElementById("op-cfg-login-bg").value = "";
-            document.getElementById("op-cfg-bg-file").value = "";
+            const bgEl = document.getElementById("op-cfg-login-bg");
+            const fileEl = document.getElementById("op-cfg-bg-file");
+            if (bgEl) bgEl.value = "";
+            if (fileEl) fileEl.value = "";
             selectOperatorBgPreset("none", true);
         }
 
         function selectOperatorBgPreset(preset, refreshPreview = true) {
-            document.getElementById("op-cfg-bg-preset").value = preset;
-            if (preset !== "none") {
-                document.getElementById("op-cfg-login-bg").value = "";
+            const presetEl = document.getElementById("op-cfg-bg-preset");
+            const bgEl = document.getElementById("op-cfg-login-bg");
+            if (presetEl) presetEl.value = preset;
+            if (preset !== "none" && bgEl) {
+                bgEl.value = "";
             }
             document.querySelectorAll(".op-bg-preset-btn").forEach(btn => {
                 const active = btn.getAttribute("data-bg-preset") === preset;
@@ -5420,7 +5438,8 @@
         }
 
         function onOperatorBgUrlInput() {
-            const val = (document.getElementById("op-cfg-login-bg").value || "").trim();
+            const bgEl = document.getElementById("op-cfg-login-bg");
+            const val = bgEl ? (bgEl.value || "").trim() : "";
             if (val) {
                 selectOperatorBgPreset("none", false);
             }
@@ -5428,80 +5447,112 @@
         }
 
         function resetOperatorBgOverlay() {
-            document.getElementById("op-cfg-bg-overlay").value = 0;
+            const overlayEl = document.getElementById("op-cfg-bg-overlay");
+            if (overlayEl) overlayEl.value = 0;
             updateOperatorBrandingPreview();
         }
 
         function updateOperatorBrandingPreview() {
-            const schoolName = document.getElementById("op-cfg-school-name").value || "SMA Miftahul Ulum";
-            const loginTitle = document.getElementById("op-cfg-login-title").value || "Selamat Datang";
-            const logoUrl = (document.getElementById("op-cfg-school-logo").value || "").trim();
-            const bgUrl = (document.getElementById("op-cfg-login-bg").value || "").trim();
-            const preset = document.getElementById("op-cfg-bg-preset").value || "none";
-            const overlayVal = Number(document.getElementById("op-cfg-bg-overlay").value || 0);
+            const schoolNameEl = document.getElementById("op-cfg-school-name");
+            const loginTitleEl = document.getElementById("op-cfg-login-title");
+            const logoEl = document.getElementById("op-cfg-school-logo");
+            const bgEl = document.getElementById("op-cfg-login-bg");
+            const presetEl = document.getElementById("op-cfg-bg-preset");
+            const overlayEl = document.getElementById("op-cfg-bg-overlay");
 
-            document.getElementById("op-mini-school-name").textContent = schoolName;
-            document.getElementById("op-mini-login-title").textContent = loginTitle;
+            const schoolName = schoolNameEl ? (schoolNameEl.value || "SMA Miftahul Ulum") : "SMA Miftahul Ulum";
+            const loginTitle = loginTitleEl ? (loginTitleEl.value || "Selamat Datang") : "Selamat Datang";
+            const logoUrl = logoEl ? (logoEl.value || "").trim() : (appState.config.schoolLogoUrl || "");
+            const bgUrl = bgEl ? (bgEl.value || "").trim() : (appState.config.loginBgUrl || "");
+            const preset = presetEl ? (presetEl.value || "none") : (appState.config.loginBgPreset || "none");
+            const overlayVal = overlayEl ? Number(overlayEl.value || 0) : Number(appState.config.loginBgOverlay || 0);
+
+            const miniSchoolName = document.getElementById("op-mini-school-name");
+            const miniLoginTitle = document.getElementById("op-mini-login-title");
+            if (miniSchoolName) miniSchoolName.textContent = schoolName;
+            if (miniLoginTitle) miniLoginTitle.textContent = loginTitle;
 
             const logoBox = document.getElementById("op-logo-preview-box");
             const miniLogo = document.getElementById("op-mini-logo-slot");
-            if (logoUrl) {
-                logoBox.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="Logo" class="w-full h-full object-contain">`;
-                miniLogo.className = "w-10 h-10 mx-auto rounded-lg bg-white border border-slate-200 flex items-center justify-center overflow-hidden p-0.5";
-                miniLogo.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="Logo" class="w-full h-full object-contain">`;
-            } else {
-                logoBox.innerHTML = `<span class="text-[11px] text-slate-400 text-center leading-tight">Default</span>`;
-                miniLogo.className = "w-10 h-10 mx-auto rounded-lg bg-indigo-600 text-white flex items-center justify-center overflow-hidden text-xs font-bold";
-                miniLogo.textContent = "CBT";
+            if (logoBox && miniLogo) {
+                if (logoUrl) {
+                    logoBox.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="Logo" class="w-full h-full object-contain">`;
+                    miniLogo.className = "w-10 h-10 mx-auto rounded-lg bg-white border border-slate-200 flex items-center justify-center overflow-hidden p-0.5";
+                    miniLogo.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="Logo" class="w-full h-full object-contain">`;
+                } else {
+                    logoBox.innerHTML = `<span class="text-[11px] text-slate-400 text-center leading-tight">Default</span>`;
+                    miniLogo.className = "w-10 h-10 mx-auto rounded-lg bg-indigo-600 text-white flex items-center justify-center overflow-hidden text-xs font-bold";
+                    miniLogo.textContent = "CBT";
+                }
             }
 
             const labelEl = document.getElementById("op-cfg-bg-overlay-label");
-            if (overlayVal < 0) labelEl.textContent = `Gelap (${Math.abs(overlayVal)}%)`;
-            else if (overlayVal > 0) labelEl.textContent = `Terang (+${overlayVal}%)`;
-            else labelEl.textContent = "Netral (0%)";
+            if (labelEl) {
+                if (overlayVal < 0) labelEl.textContent = `Gelap (${Math.abs(overlayVal)}%)`;
+                else if (overlayVal > 0) labelEl.textContent = `Terang (+${overlayVal}%)`;
+                else labelEl.textContent = "Netral (0%)";
+            }
 
             const miniBg = document.getElementById("op-frontpage-mini-preview");
             const miniOverlay = document.getElementById("op-frontpage-mini-overlay");
-            if (bgUrl) {
-                miniBg.style.backgroundImage = `url('${bgUrl.replace(/'/g, "\\'")}')`;
-            } else if (preset === "blue") {
-                miniBg.style.backgroundImage = "linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #dbeafe 100%)";
-            } else if (preset === "emerald") {
-                miniBg.style.backgroundImage = "linear-gradient(135deg, #064e3b 0%, #10b981 50%, #d1fae5 100%)";
-            } else if (preset === "amber") {
-                miniBg.style.backgroundImage = "linear-gradient(135deg, #78350f 0%, #f59e0b 50%, #fef3c7 100%)";
-            } else {
-                miniBg.style.backgroundImage = "";
-            }
+            if (miniBg && miniOverlay) {
+                if (bgUrl) {
+                    miniBg.style.backgroundImage = `url('${bgUrl.replace(/'/g, "\\'")}')`;
+                } else if (preset === "blue") {
+                    miniBg.style.backgroundImage = "linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #dbeafe 100%)";
+                } else if (preset === "emerald") {
+                    miniBg.style.backgroundImage = "linear-gradient(135deg, #064e3b 0%, #10b981 50%, #d1fae5 100%)";
+                } else if (preset === "amber") {
+                    miniBg.style.backgroundImage = "linear-gradient(135deg, #78350f 0%, #f59e0b 50%, #fef3c7 100%)";
+                } else {
+                    miniBg.style.backgroundImage = "";
+                }
 
-            if (overlayVal < 0) {
-                miniOverlay.style.backgroundColor = `rgba(15, 23, 42, ${Math.min(0.85, Math.abs(overlayVal) / 100)})`;
-            } else if (overlayVal > 0) {
-                miniOverlay.style.backgroundColor = `rgba(255, 255, 255, ${Math.min(0.85, overlayVal / 100)})`;
-            } else {
-                miniOverlay.style.backgroundColor = "transparent";
+                if (overlayVal < 0) {
+                    miniOverlay.style.backgroundColor = `rgba(15, 23, 42, ${Math.min(0.85, Math.abs(overlayVal) / 100)})`;
+                } else if (overlayVal > 0) {
+                    miniOverlay.style.backgroundColor = `rgba(255, 255, 255, ${Math.min(0.85, overlayVal / 100)})`;
+                } else {
+                    miniOverlay.style.backgroundColor = "transparent";
+                }
             }
         }
 
         function saveOperatorMenuConfig(e) {
             e.preventDefault();
             const cfg = appState.config;
-            cfg.schoolName = (document.getElementById("op-cfg-school-name").value || "").trim() || "SMA Miftahul Ulum";
-            cfg.schoolSubtitle = (document.getElementById("op-cfg-school-subtitle").value || "").trim();
-            cfg.semesterBadge = (document.getElementById("op-cfg-semester-badge").value || "").trim();
-            cfg.loginTitle = (document.getElementById("op-cfg-login-title").value || "").trim();
-            cfg.loginSubtitle = (document.getElementById("op-cfg-login-subtitle").value || "").trim();
-            cfg.schoolLogoUrl = (document.getElementById("op-cfg-school-logo").value || "").trim();
-            cfg.loginBgUrl = (document.getElementById("op-cfg-login-bg").value || "").trim();
-            cfg.loginBgPreset = document.getElementById("op-cfg-bg-preset").value || "none";
-            cfg.loginBgOverlay = Number(document.getElementById("op-cfg-bg-overlay").value || 0);
+            const schoolNameEl = document.getElementById("op-cfg-school-name");
+            const subtitleEl = document.getElementById("op-cfg-school-subtitle");
+            const semesterEl = document.getElementById("op-cfg-semester-badge");
+            const loginTitleEl = document.getElementById("op-cfg-login-title");
+            const loginSubEl = document.getElementById("op-cfg-login-subtitle");
+            const logoEl = document.getElementById("op-cfg-school-logo");
+            const bgEl = document.getElementById("op-cfg-login-bg");
+            const presetEl = document.getElementById("op-cfg-bg-preset");
+            const overlayEl = document.getElementById("op-cfg-bg-overlay");
+            const teacherPortalEl = document.getElementById("op-menu-teacher-portal");
+            const integrityEl = document.getElementById("op-menu-integrity");
+            const printEl = document.getElementById("op-menu-print");
+            const pinEl = document.getElementById("op-cfg-operator-pin");
 
-            cfg.showTeacherPortal = document.getElementById("op-menu-teacher-portal").checked;
-            cfg.enableIntegrityMonitor = document.getElementById("op-menu-integrity").checked;
-            cfg.enablePrintResult = document.getElementById("op-menu-print").checked;
+            if (schoolNameEl) cfg.schoolName = (schoolNameEl.value || "").trim() || "SMA Miftahul Ulum";
+            if (subtitleEl) cfg.schoolSubtitle = (subtitleEl.value || "").trim();
+            if (semesterEl) cfg.semesterBadge = (semesterEl.value || "").trim();
+            if (loginTitleEl) cfg.loginTitle = (loginTitleEl.value || "").trim();
+            if (loginSubEl) cfg.loginSubtitle = (loginSubEl.value || "").trim();
+            if (logoEl) cfg.schoolLogoUrl = (logoEl.value || "").trim();
+            if (bgEl) cfg.loginBgUrl = (bgEl.value || "").trim();
+            if (presetEl) cfg.loginBgPreset = presetEl.value || "none";
+            if (overlayEl) cfg.loginBgOverlay = Number(overlayEl.value || 0);
 
-            const newPin = (document.getElementById("op-cfg-operator-pin").value || "").trim();
-            if (newPin) cfg.operatorPin = newPin;
+            if (teacherPortalEl) cfg.showTeacherPortal = teacherPortalEl.checked;
+            if (integrityEl) cfg.enableIntegrityMonitor = integrityEl.checked;
+            if (printEl) cfg.enablePrintResult = printEl.checked;
+
+            if (pinEl) {
+                const newPin = (pinEl.value || "").trim();
+                if (newPin) cfg.operatorPin = newPin;
+            }
 
             saveAppState(true);
             applyWebBranding();
