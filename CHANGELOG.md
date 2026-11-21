@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/akmaljn/CBT-SMA-MU/compare/v1.0.1...v1.1.0) (2026-11-21)
+
+
+### Features
+
+* update fitur ([cf2a915](https://github.com/akmaljn/CBT-SMA-MU/commit/cf2a915bc51f1e49521a42f38964202bfdc5290d))
+
 ## [1.0.1](https://github.com/akmaljn/CBT-SMA-MU/compare/v1.0.0...v1.0.1) (2026-11-21)
 
 
