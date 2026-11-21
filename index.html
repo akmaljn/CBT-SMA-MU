@@ -258,6 +258,9 @@
                             <span id="question-type-badge" class="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold text-xs">
                                 Pilihan Ganda
                             </span>
+                            <span id="question-points-badge" class="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-xs">
+                                1 Poin
+                            </span>
                         </div>
                         <span id="question-status-pill" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
                             Belum Dijawab
@@ -667,10 +670,31 @@
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <h3 class="font-bold text-slate-900 text-base">Daftar Soal yang Akan Diujikan</h3>
-                            <p class="text-xs text-slate-500">Soal di bawah ini akan tampil pada lembar ujian siswa. Klik <strong>Keluarkan</strong> jika ingin mengganti atau mengeluarkan soal.</p>
+                            <p class="text-xs text-slate-500">Atur <strong>Poin</strong> pada tiap soal atau gunakan pengaturan poin massal di bawah. Nilai akhir siswa dihitung otomatis berdasarkan bobot poin.</p>
                         </div>
-                        <span id="manage-active-q-count" class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs shrink-0">0 Soal Diujikan</span>
+                        <div class="flex flex-wrap items-center gap-2 shrink-0">
+                            <span id="manage-total-points-badge" class="px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-extrabold text-xs">Total: 0 Poin</span>
+                            <span id="manage-active-q-count" class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs">0 Soal Diujikan</span>
+                        </div>
                     </div>
+
+                    <!-- Toolbar Pengatur Poin Massal -->
+                    <div id="manage-bulk-points-bar" class="hidden p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex flex-wrap items-center gap-2 text-xs">
+                            <span class="font-bold text-slate-700">Atur Poin Massal:</span>
+                            <input type="number" id="manage-bulk-points-input" min="1" max="1000" value="10"
+                                class="w-20 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-center font-bold text-slate-900 outline-none focus:border-indigo-500">
+                            <button type="button" onclick="applyBulkPointsToActiveQuestions()"
+                                class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-semibold transition">
+                                Terapkan ke Semua Soal
+                            </button>
+                        </div>
+                        <button type="button" onclick="distributePointsEvenlyTo100()"
+                            class="px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition">
+                            Bagi Rata Total 100 Poin
+                        </button>
+                    </div>
+
                     <div id="manage-exam-questions-list" class="space-y-3"></div>
                 </div>
             </div>
@@ -2117,7 +2141,12 @@
 
         // ==================== PENYIMPANAN LOKAL & CLOUD ====================
         function normalizeSubject(subj) {
-            const questions = Array.isArray(subj.questions) ? subj.questions : [];
+            const questions = Array.isArray(subj.questions)
+                ? subj.questions.map((q) => ({
+                    ...q,
+                    points: Number(q.points) > 0 ? Number(q.points) : 1
+                }))
+                : [];
             const validIds = new Set(questions.map((q) => q.id));
             const activeIds = Array.isArray(subj.activeQuestionIds)
                 ? subj.activeQuestionIds.filter((id) => validIds.has(id))
@@ -2255,6 +2284,11 @@
             saveAllDataToStorage(false);
             applyBrandingAndMenus();
 
+            if (loggedInTeacher) {
+                const updatedTeacher = teachersList.find((t) => t.id === loggedInTeacher.id || t.code === loggedInTeacher.code);
+                if (updatedTeacher) loggedInTeacher = updatedTeacher;
+            }
+
             if (currentScreen === "operator") {
                 refreshOperatorAllViews();
             } else if (currentScreen === "teacher") {
@@ -2276,8 +2310,6 @@
             updateTeacherResultsBadge();
             if (currentScreen === "teacher") {
                 renderTeacherResultsTable();
-            } else if (currentScreen === "login") {
-                updateSubjectPreviewCard();
             }
         };
 
@@ -2292,64 +2324,6 @@
                 badge.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200";
             }
         };
-
-        // ==================== PEMBATASAN 1 KALI PENGERJAAN PER MAPEL ====================
-        function buildStudentAttemptKey(subjectId, nisn, studentName, studentClass) {
-            const cleanSubj = String(subjectId || "").trim().replace(/[^a-zA-Z0-9_-]/g, "_");
-            const cleanNisn = String(nisn || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-            if (cleanNisn) {
-                return `${cleanSubj}__nisn_${cleanNisn}`;
-            }
-            const cleanName = String(studentName || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-            const cleanCls = String(studentClass || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-            return `${cleanSubj}__${cleanCls}_${cleanName}`;
-        }
-
-        function hasStudentAttemptedSubjectLocal(subjectId, nisn, studentName, studentClass) {
-            if (!subjectId) return false;
-            const cleanNisn = String(nisn || "").trim().toLowerCase();
-            const cleanName = String(studentName || "").trim().toLowerCase();
-            const cleanCls = String(studentClass || "").trim().toLowerCase();
-
-            // 1. Cek di daftar hasil ujian
-            const foundInResults = examResults.some((r) => {
-                if (String(r.subjectId) !== String(subjectId)) return false;
-                const rNisn = String(r.studentNisn || "").trim().toLowerCase();
-                const rName = String(r.studentName || "").trim().toLowerCase();
-                const rCls = String(r.studentClass || "").trim().toLowerCase();
-                if (cleanNisn && rNisn && cleanNisn === rNisn) return true;
-                if (cleanName && rName && cleanName === rName && cleanCls === rCls) return true;
-                return false;
-            });
-            if (foundInResults) return true;
-
-            // 2. Cek di penanda lokal perangkat
-            try {
-                const raw = localStorage.getItem(STORAGE_KEYS.ATTEMPTS);
-                const attemptsMap = raw ? JSON.parse(raw) : {};
-                const keyByNisn = buildStudentAttemptKey(subjectId, nisn, "", "");
-                const keyByName = buildStudentAttemptKey(subjectId, "", studentName, studentClass);
-                if (cleanNisn && attemptsMap[keyByNisn]) return true;
-                if (cleanName && attemptsMap[keyByName]) return true;
-            } catch (e) {}
-
-            return false;
-        }
-
-        function markStudentAttemptLocal(subjectId, nisn, studentName, studentClass) {
-            try {
-                const raw = localStorage.getItem(STORAGE_KEYS.ATTEMPTS);
-                const attemptsMap = raw ? JSON.parse(raw) : {};
-                const ts = new Date().toISOString();
-                if (String(nisn || "").trim()) {
-                    attemptsMap[buildStudentAttemptKey(subjectId, nisn, "", "")] = ts;
-                }
-                if (String(studentName || "").trim()) {
-                    attemptsMap[buildStudentAttemptKey(subjectId, "", studentName, studentClass)] = ts;
-                }
-                localStorage.setItem(STORAGE_KEYS.ATTEMPTS, JSON.stringify(attemptsMap));
-            } catch (e) {}
-        }
 
         // ==================== BRANDING, LOGO, BACKGROUND & NAVIGASI ====================
         function getOverlayCssColor(val) {
@@ -2455,15 +2429,13 @@
         }
 
         function goToScreen(screenName) {
-            if (screenName !== "exam") {
-                if (examTimerInterval) {
-                    clearInterval(examTimerInterval);
-                    examTimerInterval = null;
-                }
-                if (periodicSyncInterval) {
-                    clearInterval(periodicSyncInterval);
-                    periodicSyncInterval = null;
-                }
+            if (examTimerInterval && screenName !== "exam") {
+                clearInterval(examTimerInterval);
+                examTimerInterval = null;
+            }
+            if (periodicSyncInterval && screenName !== "exam") {
+                clearInterval(periodicSyncInterval);
+                periodicSyncInterval = null;
             }
 
             currentScreen = screenName;
@@ -2487,7 +2459,7 @@
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
 
-        // ==================== HALAMAN DEPAN & IDENTITAS SISWA ====================
+        // ==================== HALAMAN DEPAN, IDENTITAS & PEMBATASAN 1x UJIAN ====================
         function verifyStudentAccessCode(event) {
             event.preventDefault();
             const input = document.getElementById("student-access-code");
@@ -2545,6 +2517,46 @@
                 }
             }
             return true;
+        }
+
+        function buildAttemptKey(subjectId, nisn, studentName, studentClass) {
+            const cleanSubj = String(subjectId || "").trim();
+            const cleanNisn = String(nisn || "").trim().toLowerCase().replace(/\s+/g, "_");
+            const cleanName = String(studentName || "").trim().toLowerCase().replace(/\s+/g, "_");
+            const cleanClass = String(studentClass || "").trim().toLowerCase().replace(/\s+/g, "_");
+            return cleanNisn ? `${cleanSubj}__nisn_${cleanNisn}` : `${cleanSubj}__${cleanName}_${cleanClass}`;
+        }
+
+        function hasStudentCompletedSubjectLocal(subjectId, nisn, studentName, studentClass) {
+            const normSubj = String(subjectId || "").trim();
+            const normNisn = String(nisn || "").trim().toLowerCase();
+            const normName = String(studentName || "").trim().toLowerCase();
+            const normClass = String(studentClass || "").trim().toLowerCase();
+
+            try {
+                const rawAttempts = localStorage.getItem(STORAGE_KEYS.ATTEMPTS);
+                const attemptsMap = rawAttempts ? JSON.parse(rawAttempts) : {};
+                const key = buildAttemptKey(normSubj, normNisn, normName, normClass);
+                if (attemptsMap && attemptsMap[key]) return true;
+            } catch (e) {}
+
+            return examResults.some((r) => {
+                if (String(r.subjectId || "").trim() !== normSubj) return false;
+                const rNisn = String(r.studentNisn || "").trim().toLowerCase();
+                const rName = String(r.studentName || "").trim().toLowerCase();
+                const rClass = String(r.studentClass || "").trim().toLowerCase();
+                if (normNisn && rNisn && normNisn === rNisn) return true;
+                return normName && rName === normName && normClass === rClass;
+            });
+        }
+
+        function markStudentSubjectCompletedLocal(attemptKey, meta) {
+            try {
+                const rawAttempts = localStorage.getItem(STORAGE_KEYS.ATTEMPTS);
+                const attemptsMap = rawAttempts ? JSON.parse(rawAttempts) : {};
+                attemptsMap[attemptKey] = { ...meta, completedAt: new Date().toISOString() };
+                localStorage.setItem(STORAGE_KEYS.ATTEMPTS, JSON.stringify(attemptsMap));
+            } catch (e) {}
         }
 
         function refreshStudentSubjectDropdown() {
@@ -2605,18 +2617,20 @@
             if (durEl) durEl.textContent = `${subj.durationMinutes} Menit`;
             if (kkmEl) kkmEl.textContent = `${subj.kkm}`;
 
-            const sName = document.getElementById("student-name")?.value || "";
-            const sNisn = document.getElementById("student-nisn")?.value || "";
-            const sClass = document.getElementById("student-class")?.value || verifiedClassName;
-            const alreadyTaken = hasStudentAttemptedSubjectLocal(subj.id, sNisn, sName, sClass);
+            const studentName = (document.getElementById("student-name")?.value || "").trim();
+            const studentNisn = (document.getElementById("student-nisn")?.value || "").trim();
+            const studentClass = document.getElementById("student-class")?.value || verifiedClassName;
 
-            if (alreadyTaken) {
+            if ((studentName || studentNisn) && hasStudentCompletedSubjectLocal(subj.id, studentNisn, studentName, studentClass)) {
                 if (warningBox) {
-                    warningBox.textContent = `Anda sudah menyelesaikan ujian untuk mata pelajaran "${subj.title}". Setiap peserta hanya diperbolehkan mengerjakan 1 kali per mata pelajaran.`;
+                    warningBox.textContent = `Peserta atas nama ${studentName || studentNisn} sudah menyelesaikan ujian "${subj.title}". Setiap siswa hanya diperbolehkan mengerjakan 1 kali per mata pelajaran.`;
                     warningBox.classList.remove("hidden");
                 }
                 if (startBtn) startBtn.disabled = true;
-            } else if (activeQs.length === 0) {
+                return;
+            }
+
+            if (activeQs.length === 0) {
                 if (warningBox) {
                     warningBox.textContent = "Guru mata pelajaran belum memasukkan soal ujian ke daftar soal aktif.";
                     warningBox.classList.remove("hidden");
@@ -2635,95 +2649,99 @@
             return ids.map((id) => qMap.get(id)).filter(Boolean);
         }
 
-        // ==================== CACHE PAKET SOAL & DRAFT JAWABAN LOKAL ====================
-        function saveSubjectPackageToLocalCache(subjObj) {
+        // ==================== CACHE PAKET SOAL & SINKRONISASI BERKALA 5 MENIT ====================
+        function getCachedSubjectPackage(subjectId) {
             try {
                 const raw = localStorage.getItem(STORAGE_KEYS.PACKAGE_CACHE);
-                const cache = raw ? JSON.parse(raw) : {};
-                cache[subjObj.id] = {
+                const cacheMap = raw ? JSON.parse(raw) : {};
+                return cacheMap[subjectId] || null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function saveSubjectPackageToCache(subjObj) {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEYS.PACKAGE_CACHE);
+                const cacheMap = raw ? JSON.parse(raw) : {};
+                cacheMap[subjObj.id] = {
                     cachedAt: Date.now(),
                     subject: subjObj
                 };
-                localStorage.setItem(STORAGE_KEYS.PACKAGE_CACHE, JSON.stringify(cache));
-            } catch (e) {}
+                localStorage.setItem(STORAGE_KEYS.PACKAGE_CACHE, JSON.stringify(cacheMap));
+            } catch (e) {
+                console.warn("Gagal menyimpan cache paket soal:", e);
+            }
         }
 
         function saveExamDraftToLocal() {
             if (!examSession) return;
             try {
-                const draftKey = buildStudentAttemptKey(
-                    examSession.subjectId,
-                    examSession.studentNisn,
-                    examSession.studentName,
-                    examSession.studentClass
-                );
-                const raw = localStorage.getItem(STORAGE_KEYS.EXAM_DRAFT);
-                const drafts = raw ? JSON.parse(raw) : {};
-                drafts[draftKey] = {
-                    subjectId: examSession.subjectId,
+                localStorage.setItem(STORAGE_KEYS.EXAM_DRAFT, JSON.stringify({
+                    draftKey: examSession.draftKey,
                     studentName: examSession.studentName,
                     studentNisn: examSession.studentNisn,
                     studentClass: examSession.studentClass,
+                    subjectId: examSession.subjectId,
                     answers: examSession.answers,
                     doubts: examSession.doubts,
                     remainingSeconds: examSession.remainingSeconds,
-                    tabWarnings: examSession.tabWarnings,
                     integrityLogs: examSession.integrityLogs,
-                    savedAt: Date.now()
-                };
-                localStorage.setItem(STORAGE_KEYS.EXAM_DRAFT, JSON.stringify(drafts));
+                    updatedAt: Date.now()
+                }));
+            } catch (e) {}
+        }
+
+        function clearExamDraftFromLocal() {
+            try {
+                localStorage.removeItem(STORAGE_KEYS.EXAM_DRAFT);
             } catch (e) {}
         }
 
         function loadExamDraftFromLocal(draftKey) {
             try {
                 const raw = localStorage.getItem(STORAGE_KEYS.EXAM_DRAFT);
-                const drafts = raw ? JSON.parse(raw) : {};
-                return drafts[draftKey] || null;
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                return parsed && parsed.draftKey === draftKey ? parsed : null;
             } catch (e) {
                 return null;
             }
         }
 
-        function clearExamDraftFromLocal(draftKey) {
-            try {
-                const raw = localStorage.getItem(STORAGE_KEYS.EXAM_DRAFT);
-                const drafts = raw ? JSON.parse(raw) : {};
-                delete drafts[draftKey];
-                localStorage.setItem(STORAGE_KEYS.EXAM_DRAFT, JSON.stringify(drafts));
-            } catch (e) {}
-        }
-
-        async function syncExamDraftToCloudIfDirty() {
-            if (!examSession || !examSession.dirtyDraft) return;
+        async function syncExamDraftToCloud(force = false) {
+            if (!examSession) return;
+            if (!force && !examSession.dirtyDraft) return;
             if (!window.cloudSync || !window.cloudSync.ready) return;
 
-            const draftKey = buildStudentAttemptKey(
-                examSession.subjectId,
-                examSession.studentNisn,
-                examSession.studentName,
-                examSession.studentClass
-            );
-            const ok = await window.cloudSync.saveDraft(draftKey, {
-                subjectId: examSession.subjectId,
-                subjectTitle: examSession.subjectTitle,
+            const ok = await window.cloudSync.saveDraft(examSession.draftKey, {
                 studentName: examSession.studentName,
                 studentNisn: examSession.studentNisn,
                 studentClass: examSession.studentClass,
+                subjectId: examSession.subjectId,
+                subjectTitle: examSession.subjectTitle,
                 answers: examSession.answers,
                 doubts: examSession.doubts,
                 remainingSeconds: examSession.remainingSeconds,
-                tabWarnings: examSession.tabWarnings,
-                integrityLogs: examSession.integrityLogs
+                tabWarnings: (examSession.integrityLogs || []).length
             });
+
             if (ok) {
                 examSession.dirtyDraft = false;
                 const badge = document.getElementById("exam-cache-status-badge");
                 if (badge) {
-                    const nowStr = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-                    badge.textContent = `Cache Lokal • Sync ${nowStr}`;
+                    const timeStr = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+                    badge.textContent = `Cache Lokal • Sync ${timeStr}`;
                 }
             }
+        }
+
+        function startPeriodicSyncTimer() {
+            clearInterval(periodicSyncInterval);
+            // Kirim jawaban sementara ke Firebase setiap 5 menit sekali (300.000 ms) untuk hemat kuota writes
+            periodicSyncInterval = setInterval(() => {
+                syncExamDraftToCloud(false);
+            }, 300000);
         }
 
         // ==================== SESI UJIAN SISWA ====================
@@ -2733,61 +2751,80 @@
             const studentNisn = document.getElementById("student-nisn").value.trim();
             const studentClass = document.getElementById("student-class").value || verifiedClassName;
             const subjectId = document.getElementById("student-subject").value;
+            const startBtn = document.getElementById("btn-start-exam");
 
-            let subj = subjects.find((s) => s.id === subjectId);
-            if (!subj) {
+            if (!subjectId) {
                 showToast("Pilih mata pelajaran terlebih dahulu.", "error");
                 return;
             }
 
-            const startBtn = document.getElementById("btn-start-exam");
+            const attemptKey = buildAttemptKey(subjectId, studentNisn, studentName, studentClass);
+            if (hasStudentCompletedSubjectLocal(subjectId, studentNisn, studentName, studentClass)) {
+                showToast("Anda sudah menyelesaikan ujian mata pelajaran ini (maksimal 1 kali pengerjaan).", "error");
+                updateSubjectPreviewCard();
+                return;
+            }
+
             if (startBtn) {
                 startBtn.disabled = true;
                 startBtn.textContent = "Memuat Paket Soal...";
             }
 
             try {
-                // 1. Cek pembatasan 1 kali pengerjaan (lokal + 1x read cloud)
-                const attemptKey = buildStudentAttemptKey(subj.id, studentNisn, studentName, studentClass);
-                let alreadyAttempted = hasStudentAttemptedSubjectLocal(subj.id, studentNisn, studentName, studentClass);
-                if (!alreadyAttempted && window.cloudSync && window.cloudSync.ready) {
-                    alreadyAttempted = await window.cloudSync.checkStudentAttemptOnce(attemptKey);
-                    if (alreadyAttempted) {
-                        markStudentAttemptLocal(subj.id, studentNisn, studentName, studentClass);
+                // Cek 1x di Firebase apakah siswa sudah pernah mengerjakan mapel ini
+                if (window.cloudSync && window.cloudSync.ready) {
+                    const alreadyDoneRemote = await window.cloudSync.checkStudentAttemptOnce(attemptKey);
+                    if (alreadyDoneRemote) {
+                        markStudentSubjectCompletedLocal(attemptKey, { studentName, studentNisn, studentClass, subjectId });
+                        showToast("Anda sudah tercatat menyelesaikan mata pelajaran ini.", "error");
+                        updateSubjectPreviewCard();
+                        return;
                     }
                 }
 
-                if (alreadyAttempted) {
-                    showToast(`Anda sudah mengerjakan ujian ${subj.title}. Setiap siswa hanya bisa 1 kali per mapel.`, "error");
-                    updateSubjectPreviewCard();
+                // Muat seluruh paket soal sekaligus dalam 1x pembacaan lalu simpan ke localStorage cache
+                let subj = subjects.find((s) => s.id === subjectId);
+                if (window.cloudSync && window.cloudSync.ready) {
+                    const remotePkg = await window.cloudSync.fetchSubjectPackageOnce(subjectId);
+                    if (remotePkg && Array.isArray(remotePkg.questions)) {
+                        subj = normalizeSubject(remotePkg);
+                    }
+                }
+                if (!subj) {
+                    const cached = getCachedSubjectPackage(subjectId);
+                    if (cached && cached.subject) {
+                        subj = normalizeSubject(cached.subject);
+                    }
+                }
+                if (!subj) {
+                    showToast("Paket soal mata pelajaran tidak ditemukan.", "error");
                     return;
                 }
 
-                // 2. Muat seluruh paket soal sekaligus dalam 1x pembacaan dokumen lalu simpan ke localStorage cache
-                if (window.cloudSync && window.cloudSync.ready) {
-                    const remotePkg = await window.cloudSync.fetchSubjectPackageOnce(subj.id);
-                    if (remotePkg && Array.isArray(remotePkg.questions) && remotePkg.questions.length > 0) {
-                        subj = normalizeSubject(remotePkg);
-                        const idx = subjects.findIndex((s) => s.id === subj.id);
-                        if (idx !== -1) subjects[idx] = subj;
-                        saveAllDataToStorage(false);
-                    }
-                }
-                saveSubjectPackageToLocalCache(subj);
-
+                saveSubjectPackageToCache(subj);
                 const activeQuestions = getSubjectActiveQuestions(subj);
                 if (activeQuestions.length === 0) {
                     showToast("Soal ujian belum tersedia pada mata pelajaran ini.", "error");
                     return;
                 }
 
-                // Pulihkan draft jawaban lokal apabila browser sempat tertutup saat ujian berlangsung
                 const existingDraft = loadExamDraftFromLocal(attemptKey);
-                const validRestored = existingDraft &&
-                    Array.isArray(existingDraft.answers) &&
-                    existingDraft.answers.length === activeQuestions.length;
+                const restoredAnswers = existingDraft && Array.isArray(existingDraft.answers) && existingDraft.answers.length === activeQuestions.length
+                    ? existingDraft.answers
+                    : new Array(activeQuestions.length).fill(null);
+                const restoredDoubts = existingDraft && Array.isArray(existingDraft.doubts) && existingDraft.doubts.length === activeQuestions.length
+                    ? existingDraft.doubts
+                    : new Array(activeQuestions.length).fill(false);
+                const restoredSeconds = existingDraft && Number(existingDraft.remainingSeconds) > 10
+                    ? Number(existingDraft.remainingSeconds)
+                    : (Number(subj.durationMinutes) || 60) * 60;
+                const restoredLogs = existingDraft && Array.isArray(existingDraft.integrityLogs)
+                    ? existingDraft.integrityLogs
+                    : [];
 
                 examSession = {
+                    attemptKey,
+                    draftKey: attemptKey,
                     studentName,
                     studentNisn,
                     studentClass,
@@ -2798,23 +2835,16 @@
                     showReviewToStudent: subj.showReviewToStudent !== false,
                     questions: JSON.parse(JSON.stringify(activeQuestions)),
                     currentIndex: 0,
-                    answers: validRestored ? existingDraft.answers : new Array(activeQuestions.length).fill(null),
-                    doubts: validRestored && Array.isArray(existingDraft.doubts)
-                        ? existingDraft.doubts
-                        : new Array(activeQuestions.length).fill(false),
-                    remainingSeconds: validRestored && Number(existingDraft.remainingSeconds) > 0
-                        ? Number(existingDraft.remainingSeconds)
-                        : (Number(subj.durationMinutes) || 60) * 60,
-                    tabWarnings: validRestored ? (Number(existingDraft.tabWarnings) || 0) : 0,
-                    integrityLogs: validRestored && Array.isArray(existingDraft.integrityLogs)
-                        ? existingDraft.integrityLogs
-                        : [],
+                    answers: restoredAnswers,
+                    doubts: restoredDoubts,
+                    remainingSeconds: restoredSeconds,
+                    tabWarnings: restoredLogs.length,
+                    integrityLogs: restoredLogs,
                     dirtyDraft: false,
                     startedAt: new Date().toISOString()
                 };
 
                 saveExamDraftToLocal();
-                proctorAwayStartMs = null;
                 proctorLastViewportWidth = window.innerWidth;
 
                 document.getElementById("exam-subject-title").textContent = subj.title;
@@ -2832,16 +2862,11 @@
                 renderCurrentQuestion();
                 renderQuestionNavGrids();
                 startExamTimer();
-
-                // Sinkronisasi berkala setiap 5 menit sekali (300.000 ms)
-                clearInterval(periodicSyncInterval);
-                periodicSyncInterval = setInterval(() => {
-                    syncExamDraftToCloudIfDirty();
-                }, 5 * 60 * 1000);
+                startPeriodicSyncTimer();
             } finally {
                 if (startBtn) {
-                    startBtn.textContent = "Mulai Mengerjakan Ujian →";
-                    updateSubjectPreviewCard();
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = "Mulai Mengerjakan Ujian &rarr;";
                 }
             }
         }
@@ -2942,9 +2967,12 @@
             const idx = examSession.currentIndex;
             const q = examSession.questions[idx];
             const ans = examSession.answers[idx];
+            const qPoints = Number(q.points) > 0 ? Number(q.points) : 1;
 
             document.getElementById("question-number-badge").textContent = `Soal No. ${idx + 1}`;
             document.getElementById("question-type-badge").textContent = getQuestionTypeLabel(q.type);
+            const ptsBadge = document.getElementById("question-points-badge");
+            if (ptsBadge) ptsBadge.textContent = `${qPoints} Poin`;
             document.getElementById("question-text").textContent = q.text || "";
 
             const imgWrap = document.getElementById("question-image-wrapper");
@@ -2999,33 +3027,36 @@
                         `;
                     }).join("");
             } else if (q.type === "truefalse") {
+                const isTrueSelected = ans === true;
+                const isFalseSelected = ans === false;
                 area.innerHTML = `
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <p class="text-xs font-semibold text-slate-500 mb-2">Tentukan apakah pernyataan di atas Benar atau Salah:</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <button type="button" onclick="selectTrueFalseOption(true)"
-                            class="p-4 rounded-2xl border transition flex items-center gap-3 text-left ${
-                                ans === true
+                            class="p-4 rounded-2xl border transition flex items-center gap-3.5 text-left ${
+                                isTrueSelected
                                     ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-100"
                                     : "bg-white hover:bg-slate-50 border-slate-200"
                             }">
                             <span class="w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-sm shrink-0 ${
-                                ans === true ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700"
+                                isTrueSelected ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700"
                             }">B</span>
                             <div>
-                                <span class="block font-bold text-sm sm:text-base text-slate-900">Benar</span>
+                                <span class="block font-extrabold text-sm sm:text-base text-slate-900">BENAR</span>
                                 <span class="block text-xs text-slate-500">Pernyataan sesuai fakta</span>
                             </div>
                         </button>
                         <button type="button" onclick="selectTrueFalseOption(false)"
-                            class="p-4 rounded-2xl border transition flex items-center gap-3 text-left ${
-                                ans === false
+                            class="p-4 rounded-2xl border transition flex items-center gap-3.5 text-left ${
+                                isFalseSelected
                                     ? "bg-rose-50 border-rose-500 ring-2 ring-rose-100"
                                     : "bg-white hover:bg-slate-50 border-slate-200"
                             }">
                             <span class="w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-sm shrink-0 ${
-                                ans === false ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-700"
+                                isFalseSelected ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-700"
                             }">S</span>
                             <div>
-                                <span class="block font-bold text-sm sm:text-base text-slate-900">Salah</span>
+                                <span class="block font-extrabold text-sm sm:text-base text-slate-900">SALAH</span>
                                 <span class="block text-xs text-slate-500">Pernyataan tidak sesuai</span>
                             </div>
                         </button>
@@ -3089,7 +3120,7 @@
             renderQuestionNavGrids();
         }
 
-        function markSessionAnswerDirty() {
+        function markDraftChanged() {
             if (!examSession) return;
             examSession.dirtyDraft = true;
             saveExamDraftToLocal();
@@ -3098,7 +3129,7 @@
         function selectSingleOption(optIdx) {
             if (!examSession) return;
             examSession.answers[examSession.currentIndex] = optIdx;
-            markSessionAnswerDirty();
+            markDraftChanged();
             renderCurrentQuestion();
         }
 
@@ -3113,21 +3144,21 @@
                 cur.sort((a, b) => a - b);
             }
             examSession.answers[idx] = cur;
-            markSessionAnswerDirty();
+            markDraftChanged();
             renderCurrentQuestion();
         }
 
         function selectTrueFalseOption(boolVal) {
             if (!examSession) return;
             examSession.answers[examSession.currentIndex] = Boolean(boolVal);
-            markSessionAnswerDirty();
+            markDraftChanged();
             renderCurrentQuestion();
         }
 
         function updateShortAnswer(val) {
             if (!examSession) return;
             examSession.answers[examSession.currentIndex] = val;
-            markSessionAnswerDirty();
+            markDraftChanged();
             updateQuestionStatusPill();
             renderQuestionNavGrids();
         }
@@ -3141,7 +3172,7 @@
                 : new Array((q.pairs || []).length).fill("");
             arr[pairIdx] = val;
             examSession.answers[idx] = arr;
-            markSessionAnswerDirty();
+            markDraftChanged();
             updateQuestionStatusPill();
             renderQuestionNavGrids();
         }
@@ -3149,7 +3180,7 @@
         function updateEssayAnswer(val) {
             if (!examSession) return;
             examSession.answers[examSession.currentIndex] = val;
-            markSessionAnswerDirty();
+            markDraftChanged();
             updateQuestionStatusPill();
             renderQuestionNavGrids();
         }
@@ -3157,7 +3188,7 @@
         function toggleDoubtFlag(checked) {
             if (!examSession) return;
             examSession.doubts[examSession.currentIndex] = Boolean(checked);
-            markSessionAnswerDirty();
+            markDraftChanged();
             updateQuestionStatusPill();
             renderQuestionNavGrids();
         }
@@ -3259,168 +3290,12 @@
             modal.classList.remove("flex");
         }
 
-        // ==================== PENGAWASAN DETAIL (TAB SWITCH & MINTA GEMINI / OVERLAY) ====================
-        function getProctorCategoryBadgeInfo(category) {
-            switch (category) {
-                case "gemini_overlay":
-                    return { short: "Overlay / Minta Gemini", cls: "bg-purple-100 text-purple-800 border-purple-200" };
-                case "tab_switch":
-                    return { short: "Pindah / Buka Tab Baru", cls: "bg-rose-100 text-rose-800 border-rose-200" };
-                case "split_screen":
-                    return { short: "Layar Belah / Side Panel", cls: "bg-amber-100 text-amber-800 border-amber-200" };
-                case "copy_text":
-                    return { short: "Salin Teks Soal", cls: "bg-orange-100 text-orange-800 border-orange-200" };
-                case "paste_text":
-                    return { short: "Tempel Jawaban", cls: "bg-pink-100 text-pink-800 border-pink-200" };
-                case "ai_shortcut":
-                    return { short: "Pintasan AI / Sistem", cls: "bg-indigo-100 text-indigo-800 border-indigo-200" };
-                default:
-                    return { short: "Peringatan Fokus", cls: "bg-rose-100 text-rose-800 border-rose-200" };
-            }
-        }
-
-        function buildProctorSummaryText(logs, fallbackCount = 0) {
-            const list = Array.isArray(logs) ? logs : [];
-            if (list.length === 0) {
-                return fallbackCount > 0 ? `${fallbackCount}x Peringatan Pindah Tab` : "Aman (0 Pelanggaran)";
-            }
-            const counts = new Map();
-            list.forEach((lg) => {
-                const label = getProctorCategoryBadgeInfo(lg.category).short;
-                counts.set(label, (counts.get(label) || 0) + 1);
-            });
-            const breakdown = Array.from(counts.entries())
-                .map(([label, cnt]) => `${cnt}x ${label}`)
-                .join(", ");
-            return `${list.length} Peringatan (${breakdown})`;
-        }
-
-        function recordProctorIncident(category, title, detail, durationSeconds = null) {
-            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
-            const nowMs = Date.now();
-            if (nowMs - proctorLastIncidentTs < 1200) return;
-            proctorLastIncidentTs = nowMs;
-
-            const timeStr = new Date().toLocaleTimeString("id-ID", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit"
-            });
-            const qNo = (examSession.currentIndex || 0) + 1;
-
-            if (!Array.isArray(examSession.integrityLogs)) {
-                examSession.integrityLogs = [];
-            }
-
-            examSession.integrityLogs.push({
-                category,
-                title,
-                detail,
-                time: timeStr,
-                questionNo: qNo,
-                durationSeconds
-            });
-            examSession.tabWarnings = examSession.integrityLogs.length;
-            markSessionAnswerDirty();
-
-            showToast(`Catatan Pengawas (${examSession.tabWarnings}x): ${title}`, "error");
-        }
-
-        document.addEventListener("visibilitychange", () => {
-            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
-            if (document.hidden) {
-                proctorAwayStartMs = Date.now();
-            } else {
-                const elapsedSec = proctorAwayStartMs ? Math.max(1, Math.round((Date.now() - proctorAwayStartMs) / 1000)) : 1;
-                proctorAwayStartMs = null;
-                const qNo = (examSession.currentIndex || 0) + 1;
-                recordProctorIncident(
-                    "tab_switch",
-                    "Pindah Tab / Membuka Tab Baru",
-                    `Siswa meninggalkan halaman ujian (berpindah tab, membuka tab baru, atau minimize browser) saat mengerjakan Soal No. ${qNo} (Durasi di luar layar ujian: ${elapsedSec} detik).`,
-                    elapsedSec
-                );
-            }
-        });
-
-        window.addEventListener("blur", () => {
-            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
-            if (!document.hidden && !proctorAwayStartMs) {
-                proctorAwayStartMs = Date.now();
-            }
-        });
-
-        window.addEventListener("focus", () => {
-            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
-            if (!document.hidden && proctorAwayStartMs) {
-                const elapsedSec = Math.max(1, Math.round((Date.now() - proctorAwayStartMs) / 1000));
-                proctorAwayStartMs = null;
-                const qNo = (examSession.currentIndex || 0) + 1;
-                recordProctorIncident(
-                    "gemini_overlay",
-                    "Overlay Asisten / Minta Gemini / Jendela Mengambang",
-                    `Fokus layar ujian terambil oleh overlay sistem tanpa menutup tab (indikasi fitur Minta Gemini, Google Assistant, atau jendela mengambang) pada Soal No. ${qNo} (Durasi: ${elapsedSec} detik).`,
-                    elapsedSec
-                );
-            }
-        });
-
-        window.addEventListener("resize", () => {
-            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
-            const newW = window.innerWidth;
-            if (proctorLastViewportWidth - newW >= 180) {
-                const qNo = (examSession.currentIndex || 0) + 1;
-                recordProctorIncident(
-                    "split_screen",
-                    "Layar Belah / Side Panel Dibuka",
-                    `Lebar area ujian menyempit drastis (${proctorLastViewportWidth}px → ${newW}px) saat mengerjakan Soal No. ${qNo}, terindikasi membuka layar belah (split-screen) atau panel samping AI.`
-                );
-            }
-            proctorLastViewportWidth = newW;
-        });
-
-        document.addEventListener("copy", () => {
-            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
-            const selected = (window.getSelection()?.toString() || "").trim();
-            if (selected.length > 0) {
-                const preview = selected.length > 60 ? selected.slice(0, 60) + "..." : selected;
-                const qNo = (examSession.currentIndex || 0) + 1;
-                recordProctorIncident(
-                    "copy_text",
-                    "Salin Teks Soal",
-                    `Siswa menyalin teks pada Soal No. ${qNo}: "${preview}"`
-                );
-            }
-        });
-
-        document.addEventListener("paste", () => {
-            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
-            const qNo = (examSession.currentIndex || 0) + 1;
-            recordProctorIncident(
-                "paste_text",
-                "Tempel Jawaban (Paste)",
-                `Siswa menempelkan teks dari clipboard ke kolom jawaban pada Soal No. ${qNo}.`
-            );
-        });
-
-        document.addEventListener("keydown", (e) => {
-            if (!examSession || currentScreen !== "exam" || !appConfig.enableIntegrityMonitor) return;
-            const key = String(e.key || "").toLowerCase();
-            if ((e.ctrlKey || e.metaKey) && (key === "t" || key === "n" || key === "w")) {
-                const qNo = (examSession.currentIndex || 0) + 1;
-                recordProctorIncident(
-                    "ai_shortcut",
-                    "Pintasan Tab / Jendela Baru",
-                    `Siswa menekan kombinasi tombol ${e.metaKey ? "Cmd" : "Ctrl"}+${key.toUpperCase()} saat berada di Soal No. ${qNo}.`
-                );
-            }
-        });
-
         // ==================== PENILAIAN & PENGUMPULAN UJIAN ====================
         function evaluateQuestionItem(q, ans) {
+            const maxPts = Number(q.points) > 0 ? Number(q.points) : 1;
             if (q.type === "single") {
                 const correct = typeof ans === "number" && ans === Number(q.correctIndex);
-                return { isObjective: true, isCorrect: correct, points: correct ? 1 : 0, maxPoints: 1 };
+                return { isObjective: true, isCorrect: correct, points: correct ? maxPts : 0, maxPoints: maxPts };
             }
             if (q.type === "complex") {
                 const expected = Array.isArray(q.correctIndices) ? [...q.correctIndices].sort() : [];
@@ -3428,12 +3303,12 @@
                 const correct = expected.length > 0 &&
                     expected.length === given.length &&
                     expected.every((v, idx) => v === given[idx]);
-                return { isObjective: true, isCorrect: correct, points: correct ? 1 : 0, maxPoints: 1 };
+                return { isObjective: true, isCorrect: correct, points: correct ? maxPts : 0, maxPoints: maxPts };
             }
             if (q.type === "truefalse") {
                 const expectedBool = q.correctAnswer !== false;
                 const correct = typeof ans === "boolean" && ans === expectedBool;
-                return { isObjective: true, isCorrect: correct, points: correct ? 1 : 0, maxPoints: 1 };
+                return { isObjective: true, isCorrect: correct, points: correct ? maxPts : 0, maxPoints: maxPts };
             }
             if (q.type === "short") {
                 const accepted = Array.isArray(q.acceptedAnswers)
@@ -3441,7 +3316,7 @@
                     : [];
                 const given = String(ans || "").trim().toLowerCase();
                 const correct = given.length > 0 && accepted.includes(given);
-                return { isObjective: true, isCorrect: correct, points: correct ? 1 : 0, maxPoints: 1 };
+                return { isObjective: true, isCorrect: correct, points: correct ? maxPts : 0, maxPoints: maxPts };
             }
             if (q.type === "matching") {
                 const pairs = q.pairs || [];
@@ -3453,9 +3328,9 @@
                     }
                 });
                 const allCorrect = pairs.length > 0 && matchedCount === pairs.length;
-                return { isObjective: true, isCorrect: allCorrect, points: allCorrect ? 1 : 0, maxPoints: 1 };
+                return { isObjective: true, isCorrect: allCorrect, points: allCorrect ? maxPts : 0, maxPoints: maxPts };
             }
-            return { isObjective: false, isCorrect: false, points: 0, maxPoints: 1 };
+            return { isObjective: false, isCorrect: false, points: 0, maxPoints: maxPts };
         }
 
         function finishExam() {
@@ -3465,7 +3340,9 @@
             clearInterval(periodicSyncInterval);
 
             const total = examSession.questions.length;
-            let objectivePoints = 0;
+            let earnedObjectivePoints = 0;
+            let totalMaxPoints = 0;
+            let correctObjectiveCount = 0;
             let wrongCount = 0;
             let hasEssay = false;
             const details = [];
@@ -3473,9 +3350,14 @@
             examSession.questions.forEach((q, idx) => {
                 const ans = examSession.answers[idx];
                 const evalRes = evaluateQuestionItem(q, ans);
+                totalMaxPoints += evalRes.maxPoints;
                 if (evalRes.isObjective) {
-                    if (evalRes.isCorrect) objectivePoints++;
-                    else wrongCount++;
+                    if (evalRes.isCorrect) {
+                        correctObjectiveCount++;
+                        earnedObjectivePoints += evalRes.points;
+                    } else {
+                        wrongCount++;
+                    }
                 } else {
                     hasEssay = true;
                 }
@@ -3494,11 +3376,13 @@
                     studentAnswer: ans,
                     isObjective: evalRes.isObjective,
                     isCorrect: evalRes.isCorrect,
+                    maxPoints: evalRes.maxPoints,
+                    earnedPoints: evalRes.isObjective ? evalRes.points : 0,
                     essayScore: evalRes.isObjective ? null : 0
                 });
             });
 
-            const score = total > 0 ? Math.round((objectivePoints / total) * 100) : 0;
+            const score = totalMaxPoints > 0 ? Math.round((earnedObjectivePoints / totalMaxPoints) * 100) : 0;
             const finishedAt = new Date().toLocaleString("id-ID");
             const logs = Array.isArray(examSession.integrityLogs) ? examSession.integrityLogs : [];
             const proctorSummary = buildProctorSummaryText(logs, examSession.tabWarnings);
@@ -3513,7 +3397,9 @@
                 subjectTitle: examSession.subjectTitle,
                 kkm: examSession.kkm,
                 score,
-                correctCount: objectivePoints,
+                totalMaxPoints,
+                earnedPoints: earnedObjectivePoints,
+                correctCount: correctObjectiveCount,
                 wrongCount,
                 totalQuestions: total,
                 hasEssay,
@@ -3527,31 +3413,25 @@
                 details
             };
 
-            const attemptKey = buildStudentAttemptKey(
-                examSession.subjectId,
-                examSession.studentNisn,
-                examSession.studentName,
-                examSession.studentClass
-            );
-            markStudentAttemptLocal(
-                examSession.subjectId,
-                examSession.studentNisn,
-                examSession.studentName,
-                examSession.studentClass
-            );
-            clearExamDraftFromLocal(attemptKey);
+            const attemptKey = examSession.attemptKey;
+            markStudentSubjectCompletedLocal(attemptKey, {
+                studentName: examSession.studentName,
+                studentNisn: examSession.studentNisn,
+                studentClass: examSession.studentClass,
+                subjectId: examSession.subjectId
+            });
+            clearExamDraftFromLocal();
 
             examResults.unshift(resultObj);
             saveAllDataToStorage(false);
             if (window.cloudSync && window.cloudSync.ready) {
+                window.cloudSync.saveResult(resultObj);
                 window.cloudSync.saveAttemptMarker(attemptKey, {
-                    subjectId: examSession.subjectId,
-                    subjectTitle: examSession.subjectTitle,
                     studentName: examSession.studentName,
                     studentNisn: examSession.studentNisn,
-                    studentClass: examSession.studentClass
+                    studentClass: examSession.studentClass,
+                    subjectId: examSession.subjectId
                 });
-                window.cloudSync.saveResult(resultObj);
             }
 
             lastFinishedResult = resultObj;
@@ -3572,7 +3452,7 @@
             }
             if (item.type === "truefalse") {
                 if (typeof ans !== "boolean") return "(Tidak dijawab)";
-                return ans ? "Benar" : "Salah";
+                return ans ? "BENAR" : "SALAH";
             }
             if (item.type === "short" || item.type === "essay") {
                 return ans && String(ans).trim() ? String(ans).trim() : "(Tidak dijawab)";
@@ -3594,7 +3474,7 @@
                 return (item.correctIndices || []).map((i) => `${letters[i]}. ${item.options[i] || ""}`).join("; ");
             }
             if (item.type === "truefalse") {
-                return item.correctAnswer !== false ? "Benar" : "Salah";
+                return item.correctAnswer !== false ? "BENAR" : "SALAH";
             }
             if (item.type === "short") {
                 return (item.acceptedAnswers || []).join(" / ");
@@ -3611,28 +3491,20 @@
             document.getElementById("result-finished-at").textContent = res.finishedAt;
 
             const logs = Array.isArray(res.integrityLogs) ? res.integrityLogs : [];
-            const warnCount = logs.length > 0 ? logs.length : (Number(res.tabWarnings) || 0);
+            const warnCount = logs.length || Number(res.tabWarnings) || 0;
+            const proctorSummary = res.proctorSummary || buildProctorSummaryText(logs, warnCount);
             const warnEl = document.getElementById("result-tab-warnings");
-            const logsBox = document.getElementById("result-proctor-logs-box");
-            const logsList = document.getElementById("result-proctor-logs-list");
-
             if (warnEl) {
-                warnEl.textContent = res.proctorSummary || buildProctorSummaryText(logs, warnCount);
+                warnEl.textContent = proctorSummary;
                 warnEl.className = warnCount > 0 ? "text-rose-700 font-bold" : "text-emerald-700 font-bold";
             }
 
+            const logsBox = document.getElementById("result-proctor-logs-box");
+            const logsList = document.getElementById("result-proctor-logs-list");
             if (logsBox && logsList) {
                 if (logs.length > 0) {
                     logsBox.classList.remove("hidden");
-                    logsList.innerHTML = logs.map((lg, i) => `
-                        <div class="p-2.5 rounded-xl bg-white border border-rose-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
-                            <div>
-                                <span class="font-bold text-rose-800">${i + 1}. ${escapeHtml(lg.title)}</span>
-                                <span class="text-slate-600 ml-1">${escapeHtml(lg.detail)}</span>
-                            </div>
-                            <span class="font-mono text-slate-500 shrink-0">[${escapeHtml(lg.time)} • Soal ${lg.questionNo || "-"}${lg.durationSeconds ? ` • ${lg.durationSeconds} dtk` : ""}]</span>
-                        </div>
-                    `).join("");
+                    logsList.innerHTML = renderProctorLogsHtml(logs);
                 } else {
                     logsBox.classList.add("hidden");
                     logsList.innerHTML = "";
@@ -3684,16 +3556,26 @@
             }
 
             const reviewList = document.getElementById("result-review-list");
-            reviewList.innerHTML = (res.details || []).map((item, idx) => `
+            reviewList.innerHTML = (res.details || []).map((item, idx) => {
+                const maxPts = Number(item.maxPoints) > 0 ? Number(item.maxPoints) : 1;
+                const earnedPts = typeof item.earnedPoints === "number"
+                    ? item.earnedPoints
+                    : (item.isCorrect ? maxPts : 0);
+                return `
                 <div class="bg-white rounded-2xl border border-slate-200 p-5 space-y-2.5">
                     <div class="flex items-center justify-between gap-2">
                         <span class="text-xs font-extrabold uppercase text-indigo-600">Soal No. ${idx + 1} (${getQuestionTypeLabel(item.type)})</span>
-                        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                            !item.isObjective ? "bg-amber-100 text-amber-800" :
-                            item.isCorrect ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-                        }">
-                            ${!item.isObjective ? "Essay" : item.isCorrect ? "Benar" : "Salah"}
-                        </span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                                ${earnedPts} / ${maxPts} Poin
+                            </span>
+                            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                                !item.isObjective ? "bg-amber-100 text-amber-800" :
+                                item.isCorrect ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                            }">
+                                ${!item.isObjective ? "Essay" : item.isCorrect ? "Benar" : "Salah"}
+                            </span>
+                        </div>
                     </div>
                     <p class="text-sm font-medium text-slate-800 whitespace-pre-line">${escapeHtml(item.text)}</p>
                     <div class="p-3 rounded-xl bg-slate-50 text-xs space-y-1">
@@ -3702,7 +3584,8 @@
                         ${item.explanation ? `<div class="pt-1 text-slate-600"><strong>Pembahasan:</strong> ${escapeHtml(item.explanation)}</div>` : ""}
                     </div>
                 </div>
-            `).join("");
+            `;
+            }).join("");
         }
 
         function toggleResultReview() {
@@ -3711,10 +3594,138 @@
             box.classList.toggle("hidden");
         }
 
+        // ==================== SISTEM PENGAWAS DETAIL (TAB, OVERLAY & MINTA GEMINI) ====================
+        function recordProctorIncident(category, detail, durationSec = 0) {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            const now = Date.now();
+            if (now - proctorLastIncidentTs < 1200 && examSession.integrityLogs.length > 0) {
+                const lastLog = examSession.integrityLogs[examSession.integrityLogs.length - 1];
+                if (lastLog.category === category) return;
+            }
+            proctorLastIncidentTs = now;
+
+            const timeStr = new Date(now).toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit"
+            });
+            const qNum = (examSession.currentIndex || 0) + 1;
+
+            examSession.integrityLogs.push({
+                time: timeStr,
+                questionNumber: qNum,
+                category,
+                detail,
+                durationSec
+            });
+            examSession.tabWarnings = examSession.integrityLogs.length;
+            markDraftChanged();
+
+            showToast(`Peringatan Pengawas (${examSession.tabWarnings}x): ${category}`, "error");
+        }
+
+        function buildProctorSummaryText(logs, fallbackCount = 0) {
+            if (!Array.isArray(logs) || logs.length === 0) {
+                if (Number(fallbackCount) > 0) {
+                    return `${fallbackCount} Peringatan Terdeteksi`;
+                }
+                return "Aman (0 Pelanggaran)";
+            }
+            const counts = new Map();
+            logs.forEach((l) => {
+                const cat = l.category || "Aktivitas Mencurigakan";
+                counts.set(cat, (counts.get(cat) || 0) + 1);
+            });
+            const breakdown = Array.from(counts.entries())
+                .map(([cat, cnt]) => `${cnt}x ${cat}`)
+                .join(", ");
+            return `${logs.length} Peringatan (${breakdown})`;
+        }
+
+        function renderProctorLogsHtml(logs) {
+            return logs.map((item, idx) => `
+                <div class="p-2.5 rounded-xl bg-rose-50/80 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs">
+                    <div class="space-y-0.5">
+                        <span class="font-extrabold text-rose-800">${idx + 1}. ${escapeHtml(item.category)}</span>
+                        <span class="text-slate-700"> ${escapeHtml(item.detail)}</span>
+                    </div>
+                    <div class="text-[11px] font-mono font-semibold text-slate-500 shrink-0">
+                        [${escapeHtml(item.time)} • Soal ${item.questionNumber}${item.durationSec > 0 ? ` • ${item.durationSec} dtk` : ""}]
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            if (document.hidden) {
+                proctorAwayStartMs = Date.now();
+            } else if (proctorAwayStartMs) {
+                const durSec = Math.max(1, Math.round((Date.now() - proctorAwayStartMs) / 1000));
+                proctorAwayStartMs = null;
+                recordProctorIncident(
+                    "Pindah Tab / Membuka Tab Baru",
+                    `Siswa meninggalkan halaman ujian (berpindah tab, membuka tab baru, atau minimize browser) saat mengerjakan Soal No. ${(examSession.currentIndex || 0) + 1} (Durasi di luar layar ujian: ${durSec} detik).`,
+                    durSec
+                );
+            }
+        });
+
+        window.addEventListener("blur", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            setTimeout(() => {
+                if (currentScreen !== "exam" || !examSession) return;
+                if (!document.hidden && !proctorAwayStartMs) {
+                    proctorAwayStartMs = Date.now();
+                }
+            }, 150);
+        });
+
+        window.addEventListener("focus", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            if (!document.hidden && proctorAwayStartMs) {
+                const durSec = Math.max(1, Math.round((Date.now() - proctorAwayStartMs) / 1000));
+                proctorAwayStartMs = null;
+                recordProctorIncident(
+                    "Overlay / Minta Gemini / Asisten Layar",
+                    `Terdeteksi jendela mengambang (overlay seperti Minta Gemini / Google Assistant / bilah samping) aktif di atas layar ujian saat Soal No. ${(examSession.currentIndex || 0) + 1} (Durasi: ${durSec} detik).`,
+                    durSec
+                );
+            }
+        });
+
+        window.addEventListener("resize", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            const newW = window.innerWidth;
+            if (proctorLastViewportWidth - newW > 180) {
+                recordProctorIncident(
+                    "Split-Screen / Panel Samping AI",
+                    `Lebar layar ujian menyusut drastis (${proctorLastViewportWidth}px -> ${newW}px), terindikasi membuka panel samping atau layar terbagi.`
+                );
+            }
+            proctorLastViewportWidth = newW;
+        });
+
+        document.addEventListener("copy", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            recordProctorIncident(
+                "Salin Teks Soal",
+                `Siswa menyalin (Copy) teks pada Soal No. ${(examSession.currentIndex || 0) + 1}.`
+            );
+        });
+
+        document.addEventListener("paste", () => {
+            if (currentScreen !== "exam" || !examSession || !appConfig.enableIntegrityMonitor) return;
+            recordProctorIncident(
+                "Tempel Teks (Paste)",
+                `Siswa menempelkan (Paste) teks dari luar ke kolom jawaban Soal No. ${(examSession.currentIndex || 0) + 1}.`
+            );
+        });
+
         // ==================== PORTAL GURU ====================
-        function openTeacherPinModal() {
+        async function openTeacherPinModal() {
             if (window.cloudSync && window.cloudSync.ready && typeof window.cloudSync.refreshStateOnce === "function") {
-                window.cloudSync.refreshStateOnce();
+                await window.cloudSync.refreshStateOnce();
             }
             const modal = document.getElementById("modal-teacher-pin");
             const input = document.getElementById("teacher-pin-input");
@@ -3778,139 +3789,93 @@
             }
         }
 
-        function getActiveTeacherRecord() {
-            if (!loggedInTeacher) return null;
-            const fresh = teachersList.find((t) => t.id === loggedInTeacher.id);
-            if (fresh) {
-                loggedInTeacher = fresh;
-                return fresh;
-            }
-            return loggedInTeacher;
-        }
-
         function getTeacherPermittedSubjects() {
-            const teacher = getActiveTeacherRecord();
-            if (!teacher || !Array.isArray(teacher.subjectIds) || teacher.subjectIds.length === 0) {
+            const freshTeacher = loggedInTeacher
+                ? (teachersList.find((t) => t.id === loggedInTeacher.id || t.code === loggedInTeacher.code) || loggedInTeacher)
+                : null;
+            if (!freshTeacher || !Array.isArray(freshTeacher.subjectIds) || freshTeacher.subjectIds.length === 0) {
                 return subjects;
             }
-            const allowedSet = new Set(teacher.subjectIds.map((id) => String(id).trim()));
+            const allowedSet = new Set(freshTeacher.subjectIds.map((id) => String(id).trim()));
             return subjects.filter((s) => allowedSet.has(String(s.id).trim()));
         }
 
         function getTeacherPermittedResults() {
-            const teacher = getActiveTeacherRecord();
-            if (!teacher) return [];
-            const hasRestrictedSubjects = Array.isArray(teacher.subjectIds) && teacher.subjectIds.length > 0;
-            if (!hasRestrictedSubjects) {
-                return examResults;
+            const permittedIds = new Set(getTeacherPermittedSubjects().map((s) => String(s.id).trim()));
+            return examResults.filter((r) => permittedIds.has(String(r.subjectId || "").trim()));
+        }
+
+        function isResultPermittedForTeacher(resObj) {
+            if (!resObj) return false;
+            const permittedIds = new Set(getTeacherPermittedSubjects().map((s) => String(s.id).trim()));
+            return permittedIds.has(String(resObj.subjectId || "").trim());
+        }
+
+        function getRelevantClassesForSubjects(subjList) {
+            if (!Array.isArray(subjList) || subjList.length === 0) return [...classesList];
+            if (subjList.some((s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0)) {
+                return [...classesList];
             }
-            const allowedIds = new Set(teacher.subjectIds.map((id) => String(id).trim()));
-            return examResults.filter((r) => allowedIds.has(String(r.subjectId).trim()));
-        }
-
-        function isResultPermittedForTeacher(resultObj) {
-            const teacher = getActiveTeacherRecord();
-            if (!resultObj || !teacher) return false;
-            const hasRestrictedSubjects = Array.isArray(teacher.subjectIds) && teacher.subjectIds.length > 0;
-            if (!hasRestrictedSubjects) return true;
-            return teacher.subjectIds.map((id) => String(id).trim()).includes(String(resultObj.subjectId).trim());
-        }
-
-        function getTeacherRelevantClasses() {
-            const permitted = getTeacherPermittedSubjects();
-            if (permitted.length === 0) return classesList;
-            const allowsAll = permitted.some(
-                (s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0
-            );
-            if (allowsAll) return classesList;
-            const targetSet = new Set();
-            permitted.forEach((s) => {
-                (s.targetClasses || []).forEach((c) => targetSet.add(c));
+            const set = new Set();
+            subjList.forEach((s) => (s.targetClasses || []).forEach((c) => set.add(c)));
+            const ordered = classesList.filter((c) => set.has(c));
+            set.forEach((c) => {
+                if (!ordered.includes(c)) ordered.push(c);
             });
-            const matched = classesList.filter((c) => targetSet.has(c));
-            return matched.length > 0 ? matched : classesList;
-        }
-
-        function formatTeacherSubjectOptionLabel(subj) {
-            const clsInfo = (!Array.isArray(subj.targetClasses) || subj.targetClasses.length === 0)
-                ? "Semua Kelas"
-                : subj.targetClasses.join(", ");
-            return `${subj.title} (${clsInfo})`;
+            return ordered.length > 0 ? ordered : [...classesList];
         }
 
         function refreshTeacherPortalViews() {
-            const teacher = getActiveTeacherRecord();
+            const permittedSubjects = getTeacherPermittedSubjects();
+            const assignedBadge = document.getElementById("teacher-assigned-subjects-badge");
+            if (assignedBadge) {
+                const freshTeacher = loggedInTeacher
+                    ? (teachersList.find((t) => t.id === loggedInTeacher.id || t.code === loggedInTeacher.code) || loggedInTeacher)
+                    : null;
+                const isAll = !freshTeacher || !Array.isArray(freshTeacher.subjectIds) || freshTeacher.subjectIds.length === 0;
+                assignedBadge.textContent = isAll
+                    ? `Mapel Diampu: Semua Mapel (${permittedSubjects.length})`
+                    : `Mapel Diampu: ${permittedSubjects.map((s) => s.title).join(", ") || "Belum Ditugaskan"}`;
+            }
+
+            const relevantClasses = getRelevantClassesForSubjects(permittedSubjects);
             const classSel = document.getElementById("teacher-class-select");
             const manageClassSel = document.getElementById("manage-class-select");
-            const assignedBadge = document.getElementById("teacher-assigned-subjects-badge");
-            const permitted = getTeacherPermittedSubjects();
-            const relevantClasses = getTeacherRelevantClasses();
-
-            if (teacher) {
-                const loggedBadge = document.getElementById("teacher-logged-in-badge");
-                if (loggedBadge) loggedBadge.textContent = `Guru: ${teacher.name} (${teacher.code})`;
-            }
-            if (assignedBadge) {
-                if (!teacher || !Array.isArray(teacher.subjectIds) || teacher.subjectIds.length === 0) {
-                    assignedBadge.textContent = `Akses Mapel: Semua Mapel (${permitted.length})`;
-                } else if (permitted.length === 0) {
-                    assignedBadge.textContent = "Akses Mapel: Belum Diatur Operator";
-                } else {
-                    assignedBadge.textContent = `Mapel Diampu: ${permitted.map((s) => s.title).join(", ")}`;
-                }
-            }
-
-            const allLabel = permitted.length > 0
-                ? `Semua Kelas Diampu (${permitted.length} Mapel)`
-                : "Semua Kelas";
-            const classOptions = `<option value="ALL">${escapeHtml(allLabel)}</option>` +
+            const classOptions = `<option value="ALL">Semua Kelas Diampu (${permittedSubjects.length} Mapel)</option>` +
                 relevantClasses.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
 
-            const prevBankClass = classSel?.value;
             if (classSel) {
+                const prev = classSel.value;
                 classSel.innerHTML = classOptions;
-                classSel.value = (prevBankClass && (prevBankClass === "ALL" || relevantClasses.includes(prevBankClass)))
-                    ? prevBankClass
-                    : "ALL";
+                classSel.value = (prev && (prev === "ALL" || relevantClasses.includes(prev))) ? prev : "ALL";
             }
             if (manageClassSel) {
+                const prevM = manageClassSel.value;
                 manageClassSel.innerHTML = classOptions;
-                manageClassSel.value = classSel ? classSel.value : "ALL";
+                manageClassSel.value = (prevM && (prevM === "ALL" || relevantClasses.includes(prevM))) ? prevM : "ALL";
             }
 
             onTeacherClassChange();
             renderTeacherTypeFields();
-            populateResultFilterDropdowns();
             updateTeacherResultsBadge();
         }
 
-        function getPermittedSubjectsForClass(className) {
-            const permitted = getTeacherPermittedSubjects();
-            if (!className || className === "ALL") return permitted;
-            return permitted.filter(
-                (s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(className)
-            );
-        }
-
         function onTeacherClassChange() {
-            const classSel = document.getElementById("teacher-class-select");
+            const cls = document.getElementById("teacher-class-select").value || "ALL";
+            const permitted = getTeacherPermittedSubjects().filter((s) =>
+                cls === "ALL" || !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(cls)
+            );
             const subjSel = document.getElementById("teacher-subject-select");
-            if (!classSel || !subjSel) return;
-
-            const selectedClass = classSel.value;
-            const filteredSubj = getPermittedSubjectsForClass(selectedClass);
             const prevSubj = subjSel.value;
 
-            if (filteredSubj.length === 0) {
-                const emptyLabel = getTeacherPermittedSubjects().length === 0
-                    ? "-- Belum ada mapel yang diampukan oleh Operator --"
-                    : "-- Tidak ada mapel diampu untuk kelas ini --";
-                subjSel.innerHTML = `<option value="">${emptyLabel}</option>`;
+            if (permitted.length === 0) {
+                subjSel.innerHTML = `<option value="">-- Tidak ada mata pelajaran diampu untuk kelas ini --</option>`;
             } else {
-                subjSel.innerHTML = filteredSubj
-                    .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(formatTeacherSubjectOptionLabel(s))}</option>`)
-                    .join("");
-                if (prevSubj && filteredSubj.some((s) => s.id === prevSubj)) {
+                subjSel.innerHTML = permitted.map((s) => {
+                    const clsHint = (!s.targetClasses || s.targetClasses.length === 0) ? "Semua Kelas" : s.targetClasses.join(", ");
+                    return `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)} (${escapeHtml(clsHint)})</option>`;
+                }).join("");
+                if (prevSubj && permitted.some((s) => s.id === prevSubj)) {
                     subjSel.value = prevSubj;
                 }
             }
@@ -3925,60 +3890,43 @@
         }
 
         function syncManageDropdownsFromBank() {
-            const bankClass = document.getElementById("teacher-class-select")?.value || "ALL";
-            const bankSubj = document.getElementById("teacher-subject-select")?.value;
-            const manageClassSel = document.getElementById("manage-class-select");
-            const manageSubjSel = document.getElementById("manage-subject-select");
-
-            if (manageClassSel) {
-                manageClassSel.value = bankClass;
-            }
-            if (manageClassSel && manageSubjSel) {
-                const filteredSubj = getPermittedSubjectsForClass(manageClassSel.value);
-                if (filteredSubj.length === 0) {
-                    const emptyLabel = getTeacherPermittedSubjects().length === 0
-                        ? "-- Belum ada mapel yang diampukan oleh Operator --"
-                        : "-- Tidak ada mapel diampu untuk kelas ini --";
-                    manageSubjSel.innerHTML = `<option value="">${emptyLabel}</option>`;
-                } else {
-                    manageSubjSel.innerHTML = filteredSubj
-                        .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(formatTeacherSubjectOptionLabel(s))}</option>`)
-                        .join("");
-                    if (bankSubj && filteredSubj.some((s) => s.id === bankSubj)) {
-                        manageSubjSel.value = bankSubj;
-                    }
-                }
-            }
+            const bankCls = document.getElementById("teacher-class-select").value;
+            const bankSubj = document.getElementById("teacher-subject-select").value;
+            const mCls = document.getElementById("manage-class-select");
+            if (mCls && bankCls) mCls.value = bankCls;
+            onManageClassChange(bankSubj);
         }
 
-        function onManageClassChange() {
-            const manageClassSel = document.getElementById("manage-class-select");
-            const manageSubjSel = document.getElementById("manage-subject-select");
-            const bankClassSel = document.getElementById("teacher-class-select");
-            if (!manageClassSel || !manageSubjSel) return;
+        function onManageClassChange(preferredSubjId = null) {
+            const cls = document.getElementById("manage-class-select").value || "ALL";
+            const permitted = getTeacherPermittedSubjects().filter((s) =>
+                cls === "ALL" || !Array.isArray(s.targetClasses) || s.targetClasses.length === 0 || s.targetClasses.includes(cls)
+            );
+            const mSubj = document.getElementById("manage-subject-select");
+            const prevSubj = preferredSubjId || mSubj.value;
 
-            if (bankClassSel) bankClassSel.value = manageClassSel.value;
-            const filteredSubj = getPermittedSubjectsForClass(manageClassSel.value);
-            if (filteredSubj.length === 0) {
-                const emptyLabel = getTeacherPermittedSubjects().length === 0
-                    ? "-- Belum ada mapel yang diampukan oleh Operator --"
-                    : "-- Tidak ada mapel diampu untuk kelas ini --";
-                manageSubjSel.innerHTML = `<option value="">${emptyLabel}</option>`;
+            if (permitted.length === 0) {
+                mSubj.innerHTML = `<option value="">-- Tidak ada mata pelajaran diampu untuk kelas ini --</option>`;
             } else {
-                manageSubjSel.innerHTML = filteredSubj
-                    .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(formatTeacherSubjectOptionLabel(s))}</option>`)
-                    .join("");
+                mSubj.innerHTML = permitted.map((s) => {
+                    const clsHint = (!s.targetClasses || s.targetClasses.length === 0) ? "Semua Kelas" : s.targetClasses.join(", ");
+                    return `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)} (${escapeHtml(clsHint)})</option>`;
+                }).join("");
+                if (prevSubj && permitted.some((s) => s.id === prevSubj)) {
+                    mSubj.value = prevSubj;
+                }
             }
-            onManageSubjectChange();
+            renderManageExamView();
         }
 
         function onManageSubjectChange() {
-            const manageSubjVal = document.getElementById("manage-subject-select")?.value;
-            const bankSubjSel = document.getElementById("teacher-subject-select");
-            if (bankSubjSel && manageSubjVal) {
-                bankSubjSel.value = manageSubjVal;
-                renderTeacherQuestionsList();
-            }
+            const mCls = document.getElementById("manage-class-select").value;
+            const mSubj = document.getElementById("manage-subject-select").value;
+            const bCls = document.getElementById("teacher-class-select");
+            const bSubj = document.getElementById("teacher-subject-select");
+            if (bCls) bCls.value = mCls;
+            if (bSubj && mSubj) bSubj.value = mSubj;
+            renderTeacherQuestionsList();
             renderManageExamView();
         }
 
@@ -3988,19 +3936,101 @@
             const btnSingle = document.getElementById("btn-mode-single");
             const btnBulk = document.getElementById("btn-mode-bulk");
 
-            const isSingle = mode === "single";
-            if (singleForm) singleForm.classList.toggle("hidden", !isSingle);
-            if (bulkForm) bulkForm.classList.toggle("hidden", isSingle);
-
-            if (btnSingle) {
-                btnSingle.className = isSingle
-                    ? "px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs sm:text-sm transition"
-                    : "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition";
+            if (mode === "bulk") {
+                singleForm.classList.add("hidden");
+                bulkForm.classList.remove("hidden");
+                btnBulk.className = "px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs sm:text-sm transition";
+                btnSingle.className = "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition";
+            } else {
+                bulkForm.classList.add("hidden");
+                singleForm.classList.remove("hidden");
+                btnSingle.className = "px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs sm:text-sm transition";
+                btnBulk.className = "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition";
             }
-            if (btnBulk) {
-                btnBulk.className = !isSingle
-                    ? "px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs sm:text-sm transition"
-                    : "px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition";
+        }
+
+        function renderTeacherTypeFields(existingQ = null) {
+            const type = document.getElementById("q-form-type").value;
+            const container = document.getElementById("q-form-dynamic-fields");
+            const letters = ["A", "B", "C", "D", "E"];
+
+            if (type === "single") {
+                const opts = existingQ?.options || ["", "", "", "", ""];
+                const correctIdx = existingQ?.correctIndex ?? 0;
+                container.innerHTML = `
+                    <p class="text-xs font-bold text-slate-600">Pilihan Jawaban & Kunci Benar (Pilih 1):</p>
+                    <div class="space-y-2">
+                        ${letters.map((ltr, i) => `
+                            <div class="flex items-center gap-2.5">
+                                <input type="radio" name="q-single-correct" value="${i}" ${Number(correctIdx) === i ? "checked" : ""} class="w-4 h-4 text-indigo-600">
+                                <span class="font-bold text-xs w-6 text-slate-600">${ltr}.</span>
+                                <input type="text" id="q-opt-${i}" value="${escapeHtml(opts[i] || "")}" placeholder="Teks pilihan ${ltr}..."
+                                    class="flex-1 px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+            } else if (type === "complex") {
+                const opts = existingQ?.options || ["", "", "", "", ""];
+                const correctArr = Array.isArray(existingQ?.correctIndices) ? existingQ.correctIndices : [0];
+                container.innerHTML = `
+                    <p class="text-xs font-bold text-slate-600">Pilihan Jawaban & Kunci Benar (Centang semua yang benar):</p>
+                    <div class="space-y-2">
+                        ${letters.map((ltr, i) => `
+                            <div class="flex items-center gap-2.5">
+                                <input type="checkbox" id="q-complex-correct-${i}" ${correctArr.includes(i) ? "checked" : ""} class="w-4 h-4 rounded text-indigo-600">
+                                <span class="font-bold text-xs w-6 text-slate-600">${ltr}.</span>
+                                <input type="text" id="q-opt-${i}" value="${escapeHtml(opts[i] || "")}" placeholder="Teks pilihan ${ltr}..."
+                                    class="flex-1 px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+            } else if (type === "truefalse") {
+                const isTrueCorrect = existingQ ? existingQ.correctAnswer !== false : true;
+                container.innerHTML = `
+                    <p class="text-xs font-bold text-slate-600">Kunci Jawaban Benar - Salah:</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-300 bg-white cursor-pointer">
+                            <input type="radio" name="q-tf-correct" value="true" ${isTrueCorrect ? "checked" : ""} class="w-4 h-4 text-emerald-600">
+                            <span class="font-bold text-sm text-emerald-700">BENAR</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-300 bg-white cursor-pointer">
+                            <input type="radio" name="q-tf-correct" value="false" ${!isTrueCorrect ? "checked" : ""} class="w-4 h-4 text-rose-600">
+                            <span class="font-bold text-sm text-rose-700">SALAH</span>
+                        </label>
+                    </div>
+                `;
+            } else if (type === "short") {
+                const ansStr = Array.isArray(existingQ?.acceptedAnswers) ? existingQ.acceptedAnswers.join(", ") : "";
+                container.innerHTML = `
+                    <label class="block text-xs font-bold text-slate-600">Kunci Jawaban Singkat (Pisahkan dengan koma jika ada beberapa variasi benar):</label>
+                    <input type="text" id="q-short-answers" value="${escapeHtml(ansStr)}" required placeholder="Contoh: Soekarno, Ir. Soekarno"
+                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                `;
+            } else if (type === "matching") {
+                const pairs = existingQ?.pairs || [
+                    { left: "", right: "" },
+                    { left: "", right: "" },
+                    { left: "", right: "" }
+                ];
+                container.innerHTML = `
+                    <p class="text-xs font-bold text-slate-600">Pasangan Pernyataan Kiri & Jawaban Kanan:</p>
+                    <div class="space-y-2">
+                        ${[0, 1, 2, 3].map((i) => `
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" id="q-match-left-${i}" value="${escapeHtml(pairs[i]?.left || "")}" placeholder="Pernyataan ${i + 1}..."
+                                    class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                                <input type="text" id="q-match-right-${i}" value="${escapeHtml(pairs[i]?.right || "")}" placeholder="Pasangan ${i + 1}..."
+                                    class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+            } else if (type === "essay") {
+                container.innerHTML = `
+                    <p class="text-xs text-slate-600">Soal tipe <strong>Essay / Jawaban Panjang</strong> akan dikoreksi dan diberi skor secara manual oleh guru pada tab <strong>Rekap Nilai & Koreksi Essay</strong>.</p>
+                `;
             }
         }
 
@@ -4012,10 +4042,8 @@
                 const img = new Image();
                 img.onload = () => {
                     const canvas = document.createElement("canvas");
-                    const maxDim = 960;
-                    const scale = Math.max(img.width, img.height) > maxDim
-                        ? maxDim / Math.max(img.width, img.height)
-                        : 1;
+                    const maxW = 800;
+                    const scale = img.width > maxW ? maxW / img.width : 1;
                     canvas.width = img.width * scale;
                     canvas.height = img.height * scale;
                     const ctx = canvas.getContext("2d");
@@ -4029,11 +4057,9 @@
         }
 
         function updateQuestionImagePreview() {
-            const url = (document.getElementById("q-form-image-url")?.value || "").trim();
+            const url = (document.getElementById("q-form-image-url").value || "").trim();
             const box = document.getElementById("q-form-image-preview-box");
             const img = document.getElementById("q-form-image-preview");
-            if (!box || !img) return;
-
             if (url) {
                 img.src = url;
                 box.classList.remove("hidden");
@@ -4044,111 +4070,15 @@
         }
 
         function clearQuestionImageInput() {
-            const fileInp = document.getElementById("q-form-image-file");
-            const urlInp = document.getElementById("q-form-image-url");
-            if (fileInp) fileInp.value = "";
-            if (urlInp) urlInp.value = "";
+            document.getElementById("q-form-image-url").value = "";
+            const fileEl = document.getElementById("q-form-image-file");
+            if (fileEl) fileEl.value = "";
             updateQuestionImagePreview();
-        }
-
-        function renderTeacherTypeFields(existingQuestion = null) {
-            const type = document.getElementById("q-form-type")?.value || "single";
-            const container = document.getElementById("q-form-dynamic-fields");
-            const expLabel = document.getElementById("q-form-explanation-label");
-            if (!container) return;
-
-            if (expLabel) {
-                expLabel.textContent = type === "essay"
-                    ? "Pedoman Penskoran / Kunci Jawaban Essay (Opsional)"
-                    : "Pembahasan / Kunci Pedoman (Opsional)";
-            }
-
-            const letters = ["A", "B", "C", "D", "E"];
-            if (type === "single") {
-                const opts = existingQuestion?.options || ["", "", "", "", ""];
-                const correctIdx = typeof existingQuestion?.correctIndex === "number" ? existingQuestion.correctIndex : 0;
-                container.innerHTML = `
-                    <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Pilihan Jawaban (Pilih 1 Kunci Jawaban Benar)</p>
-                    <div class="space-y-2.5">
-                        ${letters.map((ltr, i) => `
-                            <div class="flex items-center gap-2.5">
-                                <input type="radio" name="q-single-correct" value="${i}" ${correctIdx === i ? "checked" : ""}
-                                    class="w-4 h-4 text-indigo-600 cursor-pointer" title="Tandai ${ltr} sebagai jawaban benar">
-                                <span class="w-7 h-7 rounded-lg bg-white border border-slate-300 flex items-center justify-center font-bold text-xs text-slate-700 shrink-0">${ltr}</span>
-                                <input type="text" id="q-opt-${i}" value="${escapeHtml(opts[i] || "")}" placeholder="Teks pilihan ${ltr}${i >= 4 ? " (opsional)" : ""}"
-                                    class="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                            </div>
-                        `).join("")}
-                    </div>
-                `;
-            } else if (type === "complex") {
-                const opts = existingQuestion?.options || ["", "", "", "", ""];
-                const correctSet = new Set(existingQuestion?.correctIndices || []);
-                container.innerHTML = `
-                    <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Pilihan Jawaban Kompleks (Centang Semua Jawaban yang Benar)</p>
-                    <div class="space-y-2.5">
-                        ${letters.map((ltr, i) => `
-                            <div class="flex items-center gap-2.5">
-                                <input type="checkbox" id="q-complex-correct-${i}" ${correctSet.has(i) ? "checked" : ""}
-                                    class="w-4 h-4 rounded text-indigo-600 cursor-pointer" title="Tandai ${ltr} sebagai jawaban benar">
-                                <span class="w-7 h-7 rounded-lg bg-white border border-slate-300 flex items-center justify-center font-bold text-xs text-slate-700 shrink-0">${ltr}</span>
-                                <input type="text" id="q-opt-${i}" value="${escapeHtml(opts[i] || "")}" placeholder="Teks pilihan ${ltr}${i >= 4 ? " (opsional)" : ""}"
-                                    class="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                            </div>
-                        `).join("")}
-                    </div>
-                `;
-            } else if (type === "truefalse") {
-                const isTrue = existingQuestion ? existingQuestion.correctAnswer !== false : true;
-                container.innerHTML = `
-                    <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Kunci Jawaban Pernyataan</p>
-                    <div class="flex flex-wrap gap-4">
-                        <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-white cursor-pointer text-sm font-bold text-emerald-700">
-                            <input type="radio" name="q-tf-correct" value="true" ${isTrue ? "checked" : ""} class="text-emerald-600">
-                            <span>Benar</span>
-                        </label>
-                        <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-white cursor-pointer text-sm font-bold text-rose-700">
-                            <input type="radio" name="q-tf-correct" value="false" ${!isTrue ? "checked" : ""} class="text-rose-600">
-                            <span>Salah</span>
-                        </label>
-                    </div>
-                `;
-            } else if (type === "short") {
-                const ansText = Array.isArray(existingQuestion?.acceptedAnswers) ? existingQuestion.acceptedAnswers.join(", ") : "";
-                container.innerHTML = `
-                    <div class="space-y-1.5">
-                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-600">Kunci Jawaban Singkat (Pisahkan dengan koma jika ada variasi jawaban)</label>
-                        <input type="text" id="q-short-answers" value="${escapeHtml(ansText)}" placeholder="Contoh: Soekarno, Ir. Soekarno"
-                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold outline-none focus:border-indigo-500">
-                    </div>
-                `;
-            } else if (type === "matching") {
-                const pairs = existingQuestion?.pairs || [{ left: "", right: "" }, { left: "", right: "" }, { left: "", right: "" }, { left: "", right: "" }];
-                container.innerHTML = `
-                    <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Pasangan Premis (Kiri) & Jawaban Cocok (Kanan)</p>
-                    <div class="space-y-2">
-                        ${[0, 1, 2, 3].map((i) => `
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <input type="text" id="q-match-left-${i}" value="${escapeHtml(pairs[i]?.left || "")}" placeholder="Premis Kiri ${i + 1}${i >= 2 ? " (opsional)" : ""}"
-                                    class="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                                <input type="text" id="q-match-right-${i}" value="${escapeHtml(pairs[i]?.right || "")}" placeholder="Pasangan Kanan ${i + 1}${i >= 2 ? " (opsional)" : ""}"
-                                    class="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-indigo-500">
-                            </div>
-                        `).join("")}
-                    </div>
-                `;
-            } else if (type === "essay") {
-                container.innerHTML = `
-                    <p class="text-xs text-slate-600">
-                        Soal bertipe <strong>Essay / Jawaban Panjang</strong> akan menampilkan kotak uraian bebas kepada siswa dan dinilai secara manual oleh guru pada menu <strong>Rekap Nilai & Koreksi Essay</strong>.
-                    </p>
-                `;
-            }
         }
 
         function saveTeacherQuestion(event) {
             event.preventDefault();
-            const subjId = document.getElementById("teacher-subject-select")?.value;
+            const subjId = document.getElementById("teacher-subject-select").value;
             const subj = subjects.find((s) => s.id === subjId);
             if (!subj) {
                 showToast("Pilih mata pelajaran terlebih dahulu.", "error");
@@ -4160,12 +4090,14 @@
             const imageUrl = document.getElementById("q-form-image-url").value.trim();
             const explanation = document.getElementById("q-form-explanation").value.trim();
 
+            const existingQ = editingQuestionId ? subj.questions.find((q) => q.id === editingQuestionId) : null;
             const qObj = {
                 id: editingQuestionId || ("q_" + Date.now() + "_" + Math.floor(Math.random() * 1000)),
                 type,
                 text,
                 imageUrl,
-                explanation
+                explanation,
+                points: existingQ && Number(existingQ.points) > 0 ? Number(existingQ.points) : 1
             };
 
             if (type === "single" || type === "complex") {
@@ -4337,7 +4269,8 @@
                         imageUrl,
                         options,
                         correctIndex: correctIndex < options.length ? correctIndex : 0,
-                        explanation
+                        explanation,
+                        points: 1
                     });
                     addedCount++;
                 }
@@ -4377,10 +4310,13 @@
                 try {
                     const parsed = JSON.parse(e.target.result);
                     if (Array.isArray(parsed.questions)) {
-                        subj.questions = parsed.questions;
+                        subj.questions = parsed.questions.map((q) => ({
+                            ...q,
+                            points: Number(q.points) > 0 ? Number(q.points) : 1
+                        }));
                         subj.activeQuestionIds = Array.isArray(parsed.activeQuestionIds)
                             ? parsed.activeQuestionIds
-                            : parsed.questions.map((q) => q.id);
+                            : subj.questions.map((q) => q.id);
                         saveAllDataToStorage();
                         renderTeacherQuestionsList();
                         renderManageExamView();
@@ -4393,7 +4329,6 @@
             reader.readAsText(file);
         }
 
-        // Memasukkan soal dari Bank Soal ke halaman soal yang akan diujikan (2. Kelola Soal)
         function inputQuestionToExam(qId) {
             const subjId = document.getElementById("teacher-subject-select").value;
             const subj = subjects.find((s) => s.id === subjId);
@@ -4411,7 +4346,7 @@
             saveAllDataToStorage();
             renderTeacherQuestionsList();
             renderManageExamView();
-            showToast("Soal berhasil diinput ke halaman ujian (2. Kelola Soal)!", "success");
+            showToast("Soal berhasil diinput ke halaman ujian (Kelola Soal)!", "success");
         }
 
         function renderTeacherQuestionsList() {
@@ -4437,7 +4372,7 @@
             if (tabBankBadge) tabBankBadge.textContent = String(totalBank);
             if (tabManageBadge) tabManageBadge.textContent = String(activeSet.size);
             if (metaText) {
-                metaText.textContent = `${subj.title} • Bank Soal: ${totalBank} butir • Siap Diujikan: ${activeSet.size} butir • Durasi: ${subj.durationMinutes} Menit • KKM: ${subj.kkm}`;
+                metaText.textContent = `${subj.title} • Bank Soal: ${totalBank} butir • Siap Diujikan: ${activeSet.size} butir • Durasi: ${subj.durationMinutes} Menit`;
             }
 
             if (totalBank === 0) {
@@ -4447,6 +4382,7 @@
 
             listEl.innerHTML = subj.questions.map((q, idx) => {
                 const isInputted = activeSet.has(q.id);
+                const qPoints = Number(q.points) > 0 ? Number(q.points) : 1;
                 return `
                     <div class="p-4 rounded-2xl border transition flex flex-col sm:flex-row sm:items-start justify-between gap-3 ${
                         isInputted
@@ -4462,6 +4398,7 @@
                             <div class="min-w-0 flex-1 space-y-1">
                                 <div class="flex flex-wrap items-center gap-2">
                                     <span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700">${getQuestionTypeLabel(q.type)}</span>
+                                    <span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">${qPoints} Poin</span>
                                     ${isInputted ? `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-100 text-sky-800">Sudah Diinput ke Ujian</span>` : ""}
                                 </div>
                                 <p class="text-sm font-medium text-slate-800 whitespace-pre-line">${escapeHtml(q.text)}</p>
@@ -4493,6 +4430,8 @@
             const subj = subjects.find((s) => s.id === subjId);
             const listEl = document.getElementById("manage-exam-questions-list");
             const countBadge = document.getElementById("manage-active-q-count");
+            const totalPtsBadge = document.getElementById("manage-total-points-badge");
+            const bulkPtsBar = document.getElementById("manage-bulk-points-bar");
             const metaText = document.getElementById("manage-subject-meta-text");
             const durInput = document.getElementById("tch-cfg-duration");
             const kkmInput = document.getElementById("tch-cfg-kkm");
@@ -4502,6 +4441,8 @@
             if (!subj) {
                 if (listEl) listEl.innerHTML = `<p class="text-sm text-slate-500">Pilih mata pelajaran terlebih dahulu.</p>`;
                 if (countBadge) countBadge.textContent = "0 Soal Diujikan";
+                if (totalPtsBadge) totalPtsBadge.textContent = "Total: 0 Poin";
+                if (bulkPtsBar) bulkPtsBar.classList.add("hidden");
                 return;
             }
 
@@ -4511,29 +4452,46 @@
             if (showReviewCb) showReviewCb.checked = subj.showReviewToStudent !== false;
 
             const activeQs = getSubjectActiveQuestions(subj);
+            const totalPoints = activeQs.reduce((sum, q) => sum + (Number(q.points) > 0 ? Number(q.points) : 1), 0);
+
             if (countBadge) countBadge.textContent = `${activeQs.length} Soal Diujikan`;
+            if (totalPtsBadge) totalPtsBadge.textContent = `Total: ${totalPoints} Poin`;
+            if (bulkPtsBar) bulkPtsBar.classList.toggle("hidden", activeQs.length === 0);
             if (metaText) {
-                metaText.textContent = `${subj.title} • ${activeQs.length} dari ${subj.questions.length} soal Bank Soal siap diujikan • Durasi: ${subj.durationMinutes} Menit • KKM: ${subj.kkm}.`;
+                metaText.textContent = `${subj.title} • ${activeQs.length} dari ${subj.questions.length} soal Bank Soal siap diujikan • Total Poin: ${totalPoints} • Durasi: ${subj.durationMinutes} Menit • KKM: ${subj.kkm}.`;
             }
 
             if (activeQs.length === 0) {
-                listEl.innerHTML = `<div class="p-6 rounded-2xl border border-dashed border-slate-300 text-center text-sm text-slate-500">Belum ada soal yang diinput untuk diujikan. Silakan masuk ke tab <strong>1. Bank Soal</strong> dan klik tombol <strong>+ Input Soal</strong>.</div>`;
+                listEl.innerHTML = `<div class="p-6 rounded-2xl border border-dashed border-slate-300 text-center text-sm text-slate-500">Belum ada soal yang diinput untuk diujikan. Silakan masuk ke tab <strong>Bank Soal</strong> dan klik tombol <strong>+ Input Soal</strong>.</div>`;
                 return;
             }
 
-            listEl.innerHTML = activeQs.map((q, idx) => `
+            listEl.innerHTML = activeQs.map((q, idx) => {
+                const qPoints = Number(q.points) > 0 ? Number(q.points) : 1;
+                const weightPct = totalPoints > 0 ? Math.round((qPoints / totalPoints) * 1000) / 10 : 0;
+                return `
                 <div class="p-4 rounded-2xl border border-slate-200 bg-white flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                     <div class="flex items-start gap-3 min-w-0 flex-1">
                         <span class="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-extrabold text-xs shrink-0">
                             ${idx + 1}
                         </span>
                         <div class="min-w-0 flex-1 space-y-1">
-                            <span class="inline-block px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700">${getQuestionTypeLabel(q.type)}</span>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="inline-block px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700">${getQuestionTypeLabel(q.type)}</span>
+                                <span class="inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-50 text-slate-500 border border-slate-200">Bobot: ${weightPct}%</span>
+                            </div>
                             <p class="text-sm font-medium text-slate-800 whitespace-pre-line">${escapeHtml(q.text)}</p>
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-1.5 shrink-0">
+                    <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+                        <div class="flex items-center gap-1.5 bg-indigo-50/90 border border-indigo-200 px-2.5 py-1 rounded-xl">
+                            <label for="manage-q-points-${escapeHtml(q.id)}" class="text-[11px] font-extrabold uppercase tracking-wider text-indigo-700">Poin:</label>
+                            <input type="number" id="manage-q-points-${escapeHtml(q.id)}" min="1" max="1000" step="1"
+                                value="${qPoints}"
+                                onchange="updateQuestionPoints('${escapeHtml(q.id)}', this.value)"
+                                class="w-16 px-2 py-1 rounded-lg border border-indigo-300 bg-white text-center font-extrabold text-xs text-slate-900 focus:border-indigo-600 outline-none">
+                        </div>
                         <button type="button" ${idx === 0 ? "disabled" : ""} onclick="moveActiveExamQuestion(${idx}, -1)" title="Naikkan Urutan"
                             class="px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-35 text-slate-700 font-bold text-xs">
                             &uarr;
@@ -4548,7 +4506,77 @@
                         </button>
                     </div>
                 </div>
-            `).join("");
+            `;
+            }).join("");
+        }
+
+        function updateQuestionPoints(qId, rawVal) {
+            const subjId = document.getElementById("manage-subject-select")?.value;
+            const subj = subjects.find((s) => s.id === subjId);
+            if (!subj) return;
+
+            const q = subj.questions.find((item) => item.id === qId);
+            if (!q) return;
+
+            const parsed = Math.round(Number(rawVal));
+            const validPoints = Math.max(1, Math.min(1000, isNaN(parsed) || parsed < 1 ? 1 : parsed));
+            q.points = validPoints;
+
+            saveAllDataToStorage();
+            renderTeacherQuestionsList();
+            renderManageExamView();
+            showToast(`Poin soal diperbarui menjadi ${validPoints} poin.`, "success");
+        }
+
+        function applyBulkPointsToActiveQuestions() {
+            const subjId = document.getElementById("manage-subject-select")?.value;
+            const subj = subjects.find((s) => s.id === subjId);
+            if (!subj) return;
+
+            const bulkVal = Math.round(Number(document.getElementById("manage-bulk-points-input")?.value));
+            if (isNaN(bulkVal) || bulkVal < 1 || bulkVal > 1000) {
+                showToast("Masukkan jumlah poin antara 1 sampai 1000.", "error");
+                return;
+            }
+
+            const activeSet = new Set(subj.activeQuestionIds || []);
+            subj.questions.forEach((q) => {
+                if (activeSet.has(q.id)) {
+                    q.points = bulkVal;
+                }
+            });
+
+            saveAllDataToStorage();
+            renderTeacherQuestionsList();
+            renderManageExamView();
+            showToast(`Semua soal aktif diatur menjadi ${bulkVal} poin!`, "success");
+        }
+
+        function distributePointsEvenlyTo100() {
+            const subjId = document.getElementById("manage-subject-select")?.value;
+            const subj = subjects.find((s) => s.id === subjId);
+            if (!subj) return;
+
+            const activeQs = getSubjectActiveQuestions(subj);
+            if (activeQs.length === 0) return;
+
+            if (100 % activeQs.length !== 0) {
+                showToast(`100 poin tidak habis dibagi ${activeQs.length} soal. Silakan atur poin tiap soal secara manual.`, "error");
+                return;
+            }
+
+            const eachPts = 100 / activeQs.length;
+            activeQs.forEach((q) => {
+                q.points = eachPts;
+            });
+
+            const bulkInput = document.getElementById("manage-bulk-points-input");
+            if (bulkInput) bulkInput.value = eachPts;
+
+            saveAllDataToStorage();
+            renderTeacherQuestionsList();
+            renderManageExamView();
+            showToast(`Berhasil membagi rata ${eachPts} poin per soal (Total 100 poin)!`, "success");
         }
 
         function moveActiveExamQuestion(idx, delta) {
@@ -4578,23 +4606,24 @@
             showToast("Soal dikeluarkan dari daftar ujian dan dikembalikan ke Bank Soal.", "info");
         }
 
-        function saveTeacherExamSettings(showNotification = false) {
-            const subjId = document.getElementById("manage-subject-select").value;
+        function saveTeacherExamSettings(showNotification = true) {
+            const subjId = document.getElementById("manage-subject-select")?.value;
             const subj = subjects.find((s) => s.id === subjId);
             if (!subj) return;
 
-            const durVal = Number(document.getElementById("tch-cfg-duration")?.value);
-            const kkmVal = Number(document.getElementById("tch-cfg-kkm")?.value);
-            if (durVal >= 5 && durVal <= 240) subj.durationMinutes = durVal;
-            if (kkmVal >= 1 && kkmVal <= 100) subj.kkm = kkmVal;
+            const durVal = Math.max(5, Math.min(240, Number(document.getElementById("tch-cfg-duration")?.value) || 60));
+            const kkmVal = Math.max(1, Math.min(100, Number(document.getElementById("tch-cfg-kkm")?.value) || 75));
 
-            subj.showScoreToStudent = Boolean(document.getElementById("tch-cfg-show-score").checked);
-            subj.showReviewToStudent = Boolean(document.getElementById("tch-cfg-show-review").checked);
+            subj.durationMinutes = durVal;
+            subj.kkm = kkmVal;
+            subj.showScoreToStudent = Boolean(document.getElementById("tch-cfg-show-score")?.checked);
+            subj.showReviewToStudent = Boolean(document.getElementById("tch-cfg-show-review")?.checked);
+
             saveAllDataToStorage();
             renderTeacherQuestionsList();
             renderManageExamView();
             if (showNotification) {
-                showToast("Pengaturan waktu ujian, KKM, nilai & kunci jawaban disimpan!", "success");
+                showToast("Pengaturan durasi, KKM & tampilan hasil disimpan!", "success");
             }
         }
 
@@ -4602,54 +4631,33 @@
         function updateTeacherResultsBadge() {
             const badge = document.getElementById("tch-badge-results");
             if (!badge) return;
-            const count = loggedInTeacher ? getTeacherPermittedResults().length : examResults.length;
-            badge.textContent = String(count);
+            const permittedCount = loggedInTeacher ? getTeacherPermittedResults().length : examResults.length;
+            badge.textContent = String(permittedCount);
         }
 
         function populateResultFilterDropdowns() {
-            const clsSel = document.getElementById("res-filter-class");
-            const subjSel = document.getElementById("res-filter-subject");
-            const scopeText = document.getElementById("teacher-results-scope-text");
             const permittedSubjects = getTeacherPermittedSubjects();
+            const relevantClasses = getRelevantClassesForSubjects(permittedSubjects);
 
+            const scopeText = document.getElementById("teacher-results-scope-text");
             if (scopeText) {
-                if (!loggedInTeacher || !Array.isArray(loggedInTeacher.subjectIds) || loggedInTeacher.subjectIds.length === 0) {
-                    scopeText.innerHTML = `Hak Akses Rekap Nilai: <strong class="text-slate-900">Semua Mata Pelajaran</strong>`;
-                } else if (permittedSubjects.length === 0) {
-                    scopeText.innerHTML = `<span class="text-rose-600 font-bold">Anda belum memiliki mata pelajaran aktif yang diampu. Hubungi Operator.</span>`;
-                } else {
-                    const names = permittedSubjects.map((s) => escapeHtml(s.title)).join(", ");
-                    scopeText.innerHTML = `Mata Pelajaran Diampu: <strong class="text-indigo-700">${names}</strong>`;
-                }
+                const mapelNames = permittedSubjects.map((s) => s.title).join(", ") || "Belum ada mata pelajaran ditugaskan";
+                scopeText.textContent = `Menampilkan khusus rekap nilai mata pelajaran yang Anda ampu: ${mapelNames}.`;
             }
 
+            const clsSel = document.getElementById("res-filter-class");
             if (clsSel) {
                 const cur = clsSel.value || "ALL";
-                const allowsAllClasses = permittedSubjects.some(
-                    (s) => !Array.isArray(s.targetClasses) || s.targetClasses.length === 0
-                );
-                let allowedClasses = classesList;
-                if (!allowsAllClasses) {
-                    const targetSet = new Set();
-                    permittedSubjects.forEach((s) => {
-                        (s.targetClasses || []).forEach((c) => targetSet.add(c));
-                    });
-                    getTeacherPermittedResults().forEach((r) => {
-                        if (r.studentClass) targetSet.add(r.studentClass);
-                    });
-                    allowedClasses = classesList.filter((c) => targetSet.has(c));
-                }
-
-                clsSel.innerHTML = `<option value="ALL">Semua Kelas</option>` +
-                    allowedClasses.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-                const validClsValues = new Set(["ALL", ...allowedClasses]);
-                clsSel.value = validClsValues.has(cur) ? cur : "ALL";
+                clsSel.innerHTML = `<option value="ALL">Semua Kelas Diampu</option>` +
+                    relevantClasses.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+                clsSel.value = (cur === "ALL" || relevantClasses.includes(cur)) ? cur : "ALL";
             }
 
+            const subjSel = document.getElementById("res-filter-subject");
             if (subjSel) {
-                const cur = subjSel.value || "ALL";
+                const curSubj = subjSel.value || "ALL";
                 if (permittedSubjects.length === 0) {
-                    subjSel.innerHTML = `<option value="NONE">-- Tidak ada mata pelajaran diampu --</option>`;
+                    subjSel.innerHTML = `<option value="NONE">-- Tidak ada mapel diampu --</option>`;
                     subjSel.value = "NONE";
                 } else if (permittedSubjects.length === 1) {
                     const onlySubj = permittedSubjects[0];
@@ -4658,8 +4666,7 @@
                 } else {
                     subjSel.innerHTML = `<option value="ALL">Semua Mapel Diampu (${permittedSubjects.length})</option>` +
                         permittedSubjects.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)}</option>`).join("");
-                    const validSubjValues = new Set(["ALL", ...permittedSubjects.map((s) => s.id)]);
-                    subjSel.value = validSubjValues.has(cur) ? cur : "ALL";
+                    subjSel.value = (curSubj === "ALL" || permittedSubjects.some((s) => s.id === curSubj)) ? curSubj : "ALL";
                 }
             }
         }
@@ -4685,84 +4692,53 @@
             document.getElementById("stat-res-avg").textContent = avg;
             document.getElementById("stat-res-pass").textContent = pass;
             document.getElementById("stat-res-pending").textContent = pendingEssay;
+            updateTeacherResultsBadge();
 
             const tbody = document.getElementById("teacher-results-tbody");
             if (!tbody) return;
 
             if (filtered.length === 0) {
-                const emptyMessage = getTeacherPermittedSubjects().length === 0
-                    ? "Anda belum memiliki mata pelajaran yang diampu. Hubungi Operator untuk pengaturan hak akses."
-                    : "Belum ada data hasil ujian peserta untuk mata pelajaran yang Anda ampu.";
-                tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">${emptyMessage}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">Belum ada data hasil ujian peserta pada mata pelajaran yang Anda ampu.</td></tr>`;
                 return;
             }
 
             tbody.innerHTML = filtered.map((r) => {
                 const passed = Number(r.score) >= Number(r.kkm || 75);
-                const needsEssay = r.hasEssay && !r.essayGraded;
-                const statusBadge = needsEssay
-                    ? `<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">Perlu Koreksi Essay</span>`
-                    : passed
-                        ? `<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">Lulus KKM</span>`
-                        : `<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700">Remedial</span>`;
-
                 const logs = Array.isArray(r.integrityLogs) ? r.integrityLogs : [];
-                const warnCount = logs.length > 0 ? logs.length : (Number(r.tabWarnings) || 0);
-                let proctorCellHtml = "";
-                if (warnCount === 0) {
-                    proctorCellHtml = `
-                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Aman (0)
-                        </span>
-                    `;
-                } else {
-                    const uniqueTags = Array.from(new Set(logs.map((lg) => getProctorCategoryBadgeInfo(lg.category).short))).slice(0, 2);
-                    const tagSummary = uniqueTags.length > 0 ? uniqueTags.join(" • ") : `${warnCount}x Pindah Tab`;
-                    proctorCellHtml = `
-                        <div class="space-y-1">
-                            <div class="flex flex-wrap items-center gap-1.5">
-                                <span class="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
-                                    ${warnCount}x Peringatan
+                const warnCount = logs.length || Number(r.tabWarnings) || 0;
+                const proctorText = r.proctorSummary || buildProctorSummaryText(logs, warnCount);
+
+                return `
+                    <tr class="hover:bg-slate-50">
+                        <td class="py-3 px-3">
+                            <div class="font-bold text-slate-900">${escapeHtml(r.studentName)}</div>
+                            <div class="text-[11px] text-slate-500">NISN: ${escapeHtml(r.studentNisn)}</div>
+                        </td>
+                        <td class="py-3 px-3 font-semibold text-slate-700">${escapeHtml(r.studentClass)}</td>
+                        <td class="py-3 px-3 text-slate-700">${escapeHtml(r.subjectTitle)}</td>
+                        <td class="py-3 px-3 text-center font-extrabold text-base ${passed ? "text-emerald-700" : "text-rose-700"}">${r.score}</td>
+                        <td class="py-3 px-3 text-center">
+                            ${r.hasEssay && !r.essayGraded
+                                ? `<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">Perlu Koreksi</span>`
+                                : `<span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${passed ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}">${passed ? "Lulus" : "Remedial"}</span>`
+                            }
+                        </td>
+                        <td class="py-3 px-3">
+                            <div class="flex flex-col items-start gap-1">
+                                <span class="text-xs font-semibold ${warnCount > 0 ? "text-rose-700" : "text-emerald-700"}">
+                                    ${escapeHtml(proctorText)}
                                 </span>
                                 ${logs.length > 0 ? `
                                     <button type="button" onclick="openProctorDetailModal('${escapeHtml(r.id)}')"
-                                        class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 font-bold text-[10px] border border-slate-300 transition">
-                                        Detail Log
+                                        class="px-2 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] transition">
+                                        Detail Log (${logs.length})
                                     </button>
                                 ` : ""}
                             </div>
-                            <p class="text-[11px] text-slate-600 line-clamp-2 max-w-52">${escapeHtml(tagSummary)}</p>
-                        </div>
-                    `;
-                }
-
-                return `
-                    <tr class="hover:bg-slate-50/80 transition">
-                        <td class="py-3 px-3">
-                            <div class="font-bold text-slate-900">${escapeHtml(r.studentName)}</div>
-                            <div class="text-[11px] text-slate-500">NISN: ${escapeHtml(r.studentNisn)} • ${escapeHtml(r.finishedAt || "-")}</div>
                         </td>
-                        <td class="py-3 px-3 font-semibold text-slate-700">${escapeHtml(r.studentClass)}</td>
-                        <td class="py-3 px-3 font-semibold text-slate-700">${escapeHtml(r.subjectTitle)}</td>
-                        <td class="py-3 px-3 text-center">
-                            <span class="font-extrabold text-base ${passed ? "text-emerald-700" : "text-rose-700"}">${r.score}</span>
-                            <span class="block text-[10px] text-slate-400">KKM ${r.kkm}</span>
-                        </td>
-                        <td class="py-3 px-3 text-center">${statusBadge}</td>
-                        <td class="py-3 px-3">${proctorCellHtml}</td>
-                        <td class="py-3 px-3 text-right">
-                            <div class="inline-flex items-center gap-1.5">
-                                ${r.hasEssay ? `
-                                    <button type="button" onclick="openGradeEssayModal('${escapeHtml(r.id)}')"
-                                        class="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs transition">
-                                        Koreksi Essay
-                                    </button>
-                                ` : ""}
-                                <button type="button" onclick="deleteExamResult('${escapeHtml(r.id)}')"
-                                    class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-xs transition">
-                                    Hapus
-                                </button>
-                            </div>
+                        <td class="py-3 px-3 text-right space-x-1 whitespace-nowrap">
+                            ${r.hasEssay ? `<button type="button" onclick="openGradeEssayModal('${escapeHtml(r.id)}')" class="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold text-xs">Koreksi Essay</button>` : ""}
+                            <button type="button" onclick="deleteExamResult('${escapeHtml(r.id)}')" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs">Hapus</button>
                         </td>
                     </tr>
                 `;
@@ -4777,61 +4753,28 @@
                 return;
             }
 
-            const metaEl = document.getElementById("proctor-detail-student-meta");
-            const summaryBar = document.getElementById("proctor-detail-summary-bar");
-            const listEl = document.getElementById("proctor-detail-logs-list");
             const logs = Array.isArray(res.integrityLogs) ? res.integrityLogs : [];
-            const summaryText = res.proctorSummary || buildProctorSummaryText(logs, res.tabWarnings || 0);
+            document.getElementById("proctor-detail-student-meta").textContent =
+                `${res.studentName} (${res.studentNisn}) • Kelas ${res.studentClass} • ${res.subjectTitle}`;
+            document.getElementById("proctor-detail-summary-bar").innerHTML =
+                `<strong>Ringkasan:</strong> ${escapeHtml(res.proctorSummary || buildProctorSummaryText(logs, res.tabWarnings))}`;
 
-            if (metaEl) {
-                metaEl.textContent = `${res.studentName} (${res.studentNisn}) • Kelas ${res.studentClass} • ${res.subjectTitle}`;
-            }
-            if (summaryBar) {
-                summaryBar.innerHTML = `
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                        <span>Ringkasan Pengawas: <strong class="${logs.length > 0 ? "text-rose-700" : "text-emerald-700"}">${escapeHtml(summaryText)}</strong></span>
-                        <span class="text-slate-500">Selesai: <strong>${escapeHtml(res.finishedAt || "-")}</strong></span>
-                    </div>
-                `;
-            }
-            if (listEl) {
-                if (logs.length === 0) {
-                    listEl.innerHTML = `<p class="text-sm text-slate-500 py-4 text-center">Tidak ada catatan pelanggaran pengawasan pada sesi ujian ini.</p>`;
-                } else {
-                    listEl.innerHTML = logs.map((lg, idx) => {
-                        const badge = getProctorCategoryBadgeInfo(lg.category);
-                        return `
-                            <div class="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5">
-                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <span class="w-6 h-6 rounded-lg bg-slate-900 text-white font-bold text-xs flex items-center justify-center">${idx + 1}</span>
-                                        <span class="px-2 py-0.5 rounded-md border text-[11px] font-bold ${badge.cls}">${escapeHtml(badge.short)}</span>
-                                        <span class="font-bold text-xs sm:text-sm text-slate-900">${escapeHtml(lg.title)}</span>
-                                    </div>
-                                    <span class="font-mono text-[11px] text-slate-500">
-                                        Pukul ${escapeHtml(lg.time)} • Soal No. ${lg.questionNo || "-"}${lg.durationSeconds ? ` • ${lg.durationSeconds} dtk` : ""}
-                                    </span>
-                                </div>
-                                <p class="text-xs text-slate-700 pl-8">${escapeHtml(lg.detail)}</p>
-                            </div>
-                        `;
-                    }).join("");
-                }
+            const listEl = document.getElementById("proctor-detail-logs-list");
+            if (logs.length === 0) {
+                listEl.innerHTML = `<p class="text-sm text-slate-500 text-center py-6">Tidak ada pelanggaran tercatat selama sesi ujian ini.</p>`;
+            } else {
+                listEl.innerHTML = renderProctorLogsHtml(logs);
             }
 
             const modal = document.getElementById("modal-proctor-detail");
-            if (modal) {
-                modal.classList.remove("hidden");
-                modal.classList.add("flex");
-            }
+            modal.classList.remove("hidden");
+            modal.classList.add("flex");
         }
 
         function closeProctorDetailModal() {
             const modal = document.getElementById("modal-proctor-detail");
-            if (modal) {
-                modal.classList.add("hidden");
-                modal.classList.remove("flex");
-            }
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
         }
 
         function openGradeEssayModal(resultId) {
@@ -4841,46 +4784,47 @@
                 showToast("Anda tidak memiliki hak akses untuk mengoreksi mata pelajaran ini.", "error");
                 return;
             }
-            gradingResultId = res.id;
 
-            const metaEl = document.getElementById("grade-essay-student-meta");
-            if (metaEl) {
-                metaEl.textContent = `${res.studentName} (${res.studentNisn}) • Kelas ${res.studentClass} • ${res.subjectTitle}`;
-            }
+            gradingResultId = resultId;
+            document.getElementById("grade-essay-student-meta").textContent =
+                `${res.studentName} (${res.studentNisn}) • Kelas ${res.studentClass} • ${res.subjectTitle}`;
 
+            const logs = Array.isArray(res.integrityLogs) ? res.integrityLogs : [];
+            const warnCount = logs.length || Number(res.tabWarnings) || 0;
             const proctorBox = document.getElementById("grade-essay-proctor-box");
             if (proctorBox) {
-                const logs = Array.isArray(res.integrityLogs) ? res.integrityLogs : [];
-                const warnCount = logs.length > 0 ? logs.length : (Number(res.tabWarnings) || 0);
-                const summaryText = res.proctorSummary || buildProctorSummaryText(logs, warnCount);
+                const summary = res.proctorSummary || buildProctorSummaryText(logs, warnCount);
                 if (warnCount > 0) {
-                    proctorBox.className = "mt-3 p-3 rounded-xl border border-rose-200 bg-rose-50/80 text-xs text-rose-900 flex flex-wrap items-center justify-between gap-2";
-                    proctorBox.innerHTML = `
-                        <span><strong>Catatan Pengawas:</strong> ${escapeHtml(summaryText)}</span>
-                        ${logs.length > 0 ? `<button type="button" onclick="openProctorDetailModal('${escapeHtml(res.id)}')" class="px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-rose-800 font-bold text-[11px] hover:bg-rose-100">Lihat Rincian Log</button>` : ""}
-                    `;
+                    proctorBox.className = "mt-3 p-3 rounded-xl border border-rose-200 bg-rose-50/70 text-xs text-rose-900 space-y-1";
+                    proctorBox.innerHTML = `<strong>Catatan Pengawas:</strong> ${escapeHtml(summary)}`;
                 } else {
                     proctorBox.className = "mt-3 p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 text-xs text-emerald-900";
-                    proctorBox.innerHTML = `<span><strong>Catatan Pengawas:</strong> Aman (0 Pelanggaran selama ujian berlangsung)</span>`;
+                    proctorBox.innerHTML = `<strong>Catatan Pengawas:</strong> Aman (0 Pelanggaran)`;
                 }
             }
 
-            const listEl = document.getElementById("grade-essay-items-list");
             const essayItems = (res.details || [])
                 .map((item, idx) => ({ item, idx }))
-                .filter(({ item }) => !item.isObjective);
+                .filter(({ item }) => item.type === "essay");
 
+            const listEl = document.getElementById("grade-essay-items-list");
             if (listEl) {
                 if (essayItems.length === 0) {
                     listEl.innerHTML = `<p class="text-sm text-slate-500">Tidak ditemukan butir soal essay pada lembar ujian ini.</p>`;
                 } else {
-                    listEl.innerHTML = essayItems.map(({ item, idx }) => `
+                    listEl.innerHTML = essayItems.map(({ item, idx }) => {
+                        const hasCustomMax = typeof item.maxPoints === "number" && item.maxPoints > 0;
+                        const maxPts = hasCustomMax ? item.maxPoints : 100;
+                        const curPts = hasCustomMax
+                            ? (typeof item.earnedPoints === "number" ? item.earnedPoints : Math.round(((Number(item.essayScore) || 0) / 100) * maxPts))
+                            : (Number(item.essayScore) || 0);
+                        return `
                         <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-2.5">
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-xs font-extrabold uppercase text-indigo-600">Soal No. ${idx + 1} (Essay)</span>
+                                <span class="text-xs font-extrabold uppercase text-indigo-600">Soal No. ${idx + 1} (Essay • Maks ${maxPts} Poin)</span>
                                 <div class="flex items-center gap-2">
-                                    <label for="essay-score-input-${idx}" class="text-xs font-bold text-slate-700">Skor (0-100):</label>
-                                    <input type="number" id="essay-score-input-${idx}" min="0" max="100" value="${Number(item.essayScore) || 0}"
+                                    <label for="essay-score-input-${idx}" class="text-xs font-bold text-slate-700">Poin (0-${maxPts}):</label>
+                                    <input type="number" id="essay-score-input-${idx}" min="0" max="${maxPts}" step="1" value="${curPts}"
                                         class="w-20 px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-sm font-bold text-center outline-none focus:border-indigo-500">
                                 </div>
                             </div>
@@ -4895,23 +4839,20 @@
                                 </div>
                             ` : ""}
                         </div>
-                    `).join("");
+                    `;
+                    }).join("");
                 }
             }
 
             const modal = document.getElementById("modal-grade-essay");
-            if (modal) {
-                modal.classList.remove("hidden");
-                modal.classList.add("flex");
-            }
+            modal.classList.remove("hidden");
+            modal.classList.add("flex");
         }
 
         function closeGradeEssayModal() {
             const modal = document.getElementById("modal-grade-essay");
-            if (modal) {
-                modal.classList.add("hidden");
-                modal.classList.remove("flex");
-            }
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
             gradingResultId = null;
         }
 
@@ -4923,21 +4864,38 @@
                 return;
             }
 
-            let totalPoints = 0;
+            let totalEarnedPoints = 0;
+            let totalMaxPoints = 0;
             const details = res.details || [];
             details.forEach((item, idx) => {
+                const hasCustomMax = typeof item.maxPoints === "number" && item.maxPoints > 0;
+                const maxPts = hasCustomMax ? item.maxPoints : 1;
+                totalMaxPoints += maxPts;
+
                 if (item.isObjective) {
-                    totalPoints += item.isCorrect ? 1 : 0;
+                    const earned = item.isCorrect ? maxPts : 0;
+                    item.earnedPoints = earned;
+                    totalEarnedPoints += earned;
                 } else {
                     const inp = document.getElementById(`essay-score-input-${idx}`);
-                    const rawScore = inp ? Number(inp.value) : Number(item.essayScore || 0);
-                    const clampedScore = Math.max(0, Math.min(100, isNaN(rawScore) ? 0 : rawScore));
-                    item.essayScore = clampedScore;
-                    totalPoints += clampedScore / 100;
+                    if (hasCustomMax) {
+                        const rawPts = inp ? Number(inp.value) : (typeof item.earnedPoints === "number" ? item.earnedPoints : 0);
+                        const clampedPts = Math.max(0, Math.min(maxPts, isNaN(rawPts) ? 0 : rawPts));
+                        item.earnedPoints = clampedPts;
+                        item.essayScore = Math.round((clampedPts / maxPts) * 100);
+                        totalEarnedPoints += clampedPts;
+                    } else {
+                        const rawScore = inp ? Number(inp.value) : Number(item.essayScore || 0);
+                        const clampedScore = Math.max(0, Math.min(100, isNaN(rawScore) ? 0 : rawScore));
+                        item.essayScore = clampedScore;
+                        totalEarnedPoints += clampedScore / 100;
+                    }
                 }
             });
 
-            res.score = details.length > 0 ? Math.round((totalPoints / details.length) * 100) : 0;
+            res.earnedPoints = totalEarnedPoints;
+            res.totalMaxPoints = totalMaxPoints;
+            res.score = totalMaxPoints > 0 ? Math.round((totalEarnedPoints / totalMaxPoints) * 100) : 0;
             res.essayGraded = true;
 
             saveAllDataToStorage(false);
