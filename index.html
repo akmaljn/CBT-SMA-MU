@@ -5346,4 +5346,260 @@
                                 ${t.active ? "Nonaktifkan" : "Aktifkan"}
                             </button>
                             <button type="button" onclick="openEditTeacherOpModal('${t.id}')"
-                                class="px-3 py-1.5 rounded-
+                                class="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700">
+                                Edit
+                            </button>
+                            <button type="button" onclick="deleteOperatorTeacher('${t.id}')"
+                                class="px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-xs font-semibold text-rose-700">
+                                Hapus
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function toggleTeacherActive(teacherId) {
+            const t = (appState.teachers || []).find(item => item.id === teacherId);
+            if (!t) return;
+            t.active = !t.active;
+            saveAppState(true);
+            renderOperatorTeachersList();
+        }
+
+        function openEditTeacherOpModal(teacherId) {
+            const t = (appState.teachers || []).find(item => item.id === teacherId);
+            if (!t) return;
+            editingTeacherOpId = t.id;
+            document.getElementById("op-edit-teacher-name").value = t.name;
+            document.getElementById("op-edit-teacher-code").value = t.code;
+
+            const clsFilter = document.getElementById("op-edit-teacher-class-filter");
+            clsFilter.innerHTML = `<option value="ALL">Semua Kelas</option>` +
+                appState.classes.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+
+            renderTeacherSubjectCheckboxes("op-edit-teacher-subjects", t.subjectIds || []);
+            const modal = document.getElementById("modal-edit-teacher-op");
+            modal.classList.remove("hidden");
+            modal.classList.add("flex");
+        }
+
+        function closeEditTeacherOpModal() {
+            const modal = document.getElementById("modal-edit-teacher-op");
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
+            editingTeacherOpId = null;
+        }
+
+        function saveEditTeacherOp(e) {
+            e.preventDefault();
+            const t = (appState.teachers || []).find(item => item.id === editingTeacherOpId);
+            if (!t) return;
+            const name = (document.getElementById("op-edit-teacher-name").value || "").trim();
+            const code = (document.getElementById("op-edit-teacher-code").value || "").trim().toUpperCase();
+            if (!name || !code) return;
+
+            const subjectIds = Array.from(document.querySelectorAll("#op-edit-teacher-subjects input[type='checkbox']:checked"))
+                .map(c => c.value);
+
+            t.name = name;
+            t.code = code;
+            t.subjectIds = subjectIds;
+            saveAppState(true);
+            closeEditTeacherOpModal();
+            renderOperatorTeachersList();
+            showToast("Data guru diperbarui.", "success");
+        }
+
+        function deleteOperatorTeacher(teacherId) {
+            if ((appState.teachers || []).length <= 1) {
+                showToast("Minimal harus terdapat satu akun guru aktif.", "warning");
+                return;
+            }
+            openGenericConfirmModal(
+                "Hapus Akun Guru?",
+                "Kode akses guru ini akan dihapus dari sistem.",
+                () => {
+                    appState.teachers = (appState.teachers || []).filter(t => t.id !== teacherId);
+                    saveAppState(true);
+                    renderOperatorTeachersList();
+                    showToast("Akun guru dihapus.", "info");
+                }
+            );
+        }
+
+        // --- Tab Operator 6: Menu & Web ---
+        function initOperatorMenusTab() {
+            const cfg = appState.config;
+            document.getElementById("op-cfg-school-name").value = cfg.schoolName || "";
+            document.getElementById("op-cfg-school-subtitle").value = cfg.schoolSubtitle || "";
+            document.getElementById("op-cfg-semester-badge").value = cfg.semesterBadge || "";
+            document.getElementById("op-cfg-login-title").value = cfg.loginTitle || "";
+            document.getElementById("op-cfg-login-subtitle").value = cfg.loginSubtitle || "";
+            document.getElementById("op-cfg-school-logo").value = cfg.schoolLogoUrl || "";
+            document.getElementById("op-cfg-login-bg").value = cfg.loginBgUrl || "";
+            document.getElementById("op-cfg-bg-preset").value = cfg.loginBgPreset || "none";
+            document.getElementById("op-cfg-bg-overlay").value = cfg.loginBgOverlay || 0;
+
+            document.getElementById("op-menu-teacher-portal").checked = cfg.showTeacherPortal !== false;
+            document.getElementById("op-menu-integrity").checked = cfg.enableIntegrityMonitor !== false;
+            document.getElementById("op-menu-print").checked = cfg.enablePrintResult !== false;
+            document.getElementById("op-cfg-operator-pin").value = cfg.operatorPin || "9999";
+
+            selectOperatorBgPreset(cfg.loginBgPreset || "none", false);
+            updateOperatorBrandingPreview();
+        }
+
+        function toggleOperatorPinVisibility() {
+            const inp = document.getElementById("op-cfg-operator-pin");
+            const eye = document.getElementById("icon-op-pin-eye");
+            const eyeOff = document.getElementById("icon-op-pin-eye-off");
+            if (!inp) return;
+            const isHidden = inp.type === "password";
+            inp.type = isHidden ? "text" : "password";
+            if (eye) eye.classList.toggle("hidden", isHidden);
+            if (eyeOff) eyeOff.classList.toggle("hidden", !isHidden);
+        }
+
+        async function handleOperatorImageUpload(e, targetType) {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            try {
+                const maxW = targetType === "logo" ? 320 : 1280;
+                const compressed = await compressImageFile(file, maxW, 0.8);
+                if (targetType === "logo") {
+                    document.getElementById("op-cfg-school-logo").value = compressed;
+                } else {
+                    document.getElementById("op-cfg-login-bg").value = compressed;
+                    document.getElementById("op-cfg-bg-preset").value = "none";
+                }
+                updateOperatorBrandingPreview();
+                showToast("Gambar berhasil diproses.", "success");
+            } catch (err) {
+                showToast("Gagal memproses gambar.", "error");
+            }
+        }
+
+        function clearOperatorSchoolLogo() {
+            document.getElementById("op-cfg-school-logo").value = "";
+            document.getElementById("op-cfg-logo-file").value = "";
+            updateOperatorBrandingPreview();
+        }
+
+        function clearOperatorLoginBg() {
+            document.getElementById("op-cfg-login-bg").value = "";
+            document.getElementById("op-cfg-bg-file").value = "";
+            selectOperatorBgPreset("none", true);
+        }
+
+        function selectOperatorBgPreset(preset, refreshPreview = true) {
+            document.getElementById("op-cfg-bg-preset").value = preset;
+            if (preset !== "none") {
+                document.getElementById("op-cfg-login-bg").value = "";
+            }
+            document.querySelectorAll(".op-bg-preset-btn").forEach(btn => {
+                const active = btn.getAttribute("data-bg-preset") === preset;
+                btn.classList.toggle("ring-2", active);
+                btn.classList.toggle("ring-indigo-600", active);
+            });
+            if (refreshPreview) updateOperatorBrandingPreview();
+        }
+
+        function onOperatorBgUrlInput() {
+            const val = (document.getElementById("op-cfg-login-bg").value || "").trim();
+            if (val) {
+                selectOperatorBgPreset("none", false);
+            }
+            updateOperatorBrandingPreview();
+        }
+
+        function resetOperatorBgOverlay() {
+            document.getElementById("op-cfg-bg-overlay").value = 0;
+            updateOperatorBrandingPreview();
+        }
+
+        function updateOperatorBrandingPreview() {
+            const schoolName = document.getElementById("op-cfg-school-name").value || "SMA Miftahul Ulum";
+            const loginTitle = document.getElementById("op-cfg-login-title").value || "Selamat Datang";
+            const logoUrl = (document.getElementById("op-cfg-school-logo").value || "").trim();
+            const bgUrl = (document.getElementById("op-cfg-login-bg").value || "").trim();
+            const preset = document.getElementById("op-cfg-bg-preset").value || "none";
+            const overlayVal = Number(document.getElementById("op-cfg-bg-overlay").value || 0);
+
+            document.getElementById("op-mini-school-name").textContent = schoolName;
+            document.getElementById("op-mini-login-title").textContent = loginTitle;
+
+            const logoBox = document.getElementById("op-logo-preview-box");
+            const miniLogo = document.getElementById("op-mini-logo-slot");
+            if (logoUrl) {
+                logoBox.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="Logo" class="w-full h-full object-contain">`;
+                miniLogo.className = "w-10 h-10 mx-auto rounded-lg bg-white border border-slate-200 flex items-center justify-center overflow-hidden p-0.5";
+                miniLogo.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="Logo" class="w-full h-full object-contain">`;
+            } else {
+                logoBox.innerHTML = `<span class="text-[11px] text-slate-400 text-center leading-tight">Default</span>`;
+                miniLogo.className = "w-10 h-10 mx-auto rounded-lg bg-indigo-600 text-white flex items-center justify-center overflow-hidden text-xs font-bold";
+                miniLogo.textContent = "CBT";
+            }
+
+            const labelEl = document.getElementById("op-cfg-bg-overlay-label");
+            if (overlayVal < 0) labelEl.textContent = `Gelap (${Math.abs(overlayVal)}%)`;
+            else if (overlayVal > 0) labelEl.textContent = `Terang (+${overlayVal}%)`;
+            else labelEl.textContent = "Netral (0%)";
+
+            const miniBg = document.getElementById("op-frontpage-mini-preview");
+            const miniOverlay = document.getElementById("op-frontpage-mini-overlay");
+            if (bgUrl) {
+                miniBg.style.backgroundImage = `url('${bgUrl.replace(/'/g, "\\'")}')`;
+            } else if (preset === "blue") {
+                miniBg.style.backgroundImage = "linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #dbeafe 100%)";
+            } else if (preset === "emerald") {
+                miniBg.style.backgroundImage = "linear-gradient(135deg, #064e3b 0%, #10b981 50%, #d1fae5 100%)";
+            } else if (preset === "amber") {
+                miniBg.style.backgroundImage = "linear-gradient(135deg, #78350f 0%, #f59e0b 50%, #fef3c7 100%)";
+            } else {
+                miniBg.style.backgroundImage = "";
+            }
+
+            if (overlayVal < 0) {
+                miniOverlay.style.backgroundColor = `rgba(15, 23, 42, ${Math.min(0.85, Math.abs(overlayVal) / 100)})`;
+            } else if (overlayVal > 0) {
+                miniOverlay.style.backgroundColor = `rgba(255, 255, 255, ${Math.min(0.85, overlayVal / 100)})`;
+            } else {
+                miniOverlay.style.backgroundColor = "transparent";
+            }
+        }
+
+        function saveOperatorMenuConfig(e) {
+            e.preventDefault();
+            const cfg = appState.config;
+            cfg.schoolName = (document.getElementById("op-cfg-school-name").value || "").trim() || "SMA Miftahul Ulum";
+            cfg.schoolSubtitle = (document.getElementById("op-cfg-school-subtitle").value || "").trim();
+            cfg.semesterBadge = (document.getElementById("op-cfg-semester-badge").value || "").trim();
+            cfg.loginTitle = (document.getElementById("op-cfg-login-title").value || "").trim();
+            cfg.loginSubtitle = (document.getElementById("op-cfg-login-subtitle").value || "").trim();
+            cfg.schoolLogoUrl = (document.getElementById("op-cfg-school-logo").value || "").trim();
+            cfg.loginBgUrl = (document.getElementById("op-cfg-login-bg").value || "").trim();
+            cfg.loginBgPreset = document.getElementById("op-cfg-bg-preset").value || "none";
+            cfg.loginBgOverlay = Number(document.getElementById("op-cfg-bg-overlay").value || 0);
+
+            cfg.showTeacherPortal = document.getElementById("op-menu-teacher-portal").checked;
+            cfg.enableIntegrityMonitor = document.getElementById("op-menu-integrity").checked;
+            cfg.enablePrintResult = document.getElementById("op-menu-print").checked;
+
+            const newPin = (document.getElementById("op-cfg-operator-pin").value || "").trim();
+            if (newPin) cfg.operatorPin = newPin;
+
+            saveAppState(true);
+            applyWebBranding();
+            showToast("Pengaturan identitas, menu, dan tampilan web berhasil diterapkan!", "success");
+        }
+
+        // ==================== INISIALISASI SAAT HALAMAN DIMUAT ====================
+        window.addEventListener("DOMContentLoaded", () => {
+            applyWebBranding();
+            renderTeacherTypeFields();
+            switchScreenInternal("welcome");
+        });
+    </script>
+</body>
+</html>
